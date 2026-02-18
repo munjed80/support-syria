@@ -1,0 +1,238 @@
+import { useState, useMemo } from 'react'
+import { useKV } from '@github/spark/hooks'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Badge } from '@/components/ui/badge'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow
+} from '@/components/ui/table'
+import { SignOut, ChartBar, Buildings, Warning } from '@phosphor-icons/react'
+import { CATEGORIES, STATUSES, STATUS_COLORS, formatRelativeTime, isOverdue } from '@/lib/constants'
+import type { ServiceRequest, User, District } from '@/lib/types'
+
+interface AdminDashboardProps {
+  user: User
+  onLogout: () => void
+}
+
+export function AdminDashboard({ user, onLogout }: AdminDashboardProps) {
+  const [requests] = useKV<ServiceRequest[]>('service_requests', [])
+  const [districts] = useKV<District[]>('districts', [])
+  
+  const [statusFilter, setStatusFilter] = useState<string>('all')
+  const [categoryFilter, setCategoryFilter] = useState<string>('all')
+  const [districtFilter, setDistrictFilter] = useState<string>('all')
+
+  const userRequests = useMemo(() => {
+    let filtered = requests || []
+    
+    if (user.role === 'district_admin' && user.districtId) {
+      filtered = filtered.filter(r => r.districtId === user.districtId)
+    } else if (user.role === 'municipal_admin') {
+      filtered = filtered.filter(r => r.municipalityId === user.municipalityId)
+    }
+    
+    if (statusFilter !== 'all') {
+      filtered = filtered.filter(r => r.status === statusFilter)
+    }
+    
+    if (categoryFilter !== 'all') {
+      filtered = filtered.filter(r => r.category === categoryFilter)
+    }
+    
+    if (districtFilter !== 'all') {
+      filtered = filtered.filter(r => r.districtId === districtFilter)
+    }
+    
+    return filtered.sort((a, b) => 
+      new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    )
+  }, [requests, statusFilter, categoryFilter, districtFilter, user])
+
+  const stats = useMemo(() => {
+    const all = userRequests
+    return {
+      total: all.length,
+      open: all.filter(r => r.status !== 'completed' && r.status !== 'rejected').length,
+      completed: all.filter(r => r.status === 'completed').length,
+      overdue: all.filter(r => isOverdue(r)).length
+    }
+  }, [userRequests])
+
+  const userDistricts = useMemo(() => {
+    if (user.role === 'municipal_admin') {
+      return (districts || []).filter(d => d.municipalityId === user.municipalityId)
+    } else if (user.role === 'district_admin' && user.districtId) {
+      return (districts || []).filter(d => d.id === user.districtId)
+    }
+    return []
+  }, [districts, user])
+
+  return (
+    <div className="min-h-screen bg-background">
+      <header className="border-b bg-card">
+        <div className="container mx-auto px-4 py-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-2xl font-bold">لوحة التحكم</h1>
+              <p className="text-sm text-muted-foreground">{user.name}</p>
+            </div>
+            <Button variant="outline" onClick={onLogout}>
+              <SignOut className="ml-2" />
+              تسجيل الخروج
+            </Button>
+          </div>
+        </div>
+      </header>
+
+      <main className="container mx-auto px-4 py-8">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+          <Card>
+            <CardHeader className="pb-3">
+              <CardDescription>إجمالي الطلبات</CardDescription>
+              <CardTitle className="text-3xl">{stats.total}</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ChartBar size={24} className="text-muted-foreground" />
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-3">
+              <CardDescription>الطلبات المفتوحة</CardDescription>
+              <CardTitle className="text-3xl text-[oklch(0.55_0.10_250)]">{stats.open}</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <Buildings size={24} className="text-muted-foreground" />
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-3">
+              <CardDescription>المنجزة</CardDescription>
+              <CardTitle className="text-3xl text-[oklch(0.60_0.15_145)]">{stats.completed}</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <Buildings size={24} className="text-muted-foreground" />
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-3">
+              <CardDescription>المتأخرة</CardDescription>
+              <CardTitle className="text-3xl text-destructive">{stats.overdue}</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <Warning size={24} className="text-destructive" />
+            </CardContent>
+          </Card>
+        </div>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>الطلبات</CardTitle>
+            <CardDescription>
+              إدارة طلبات الخدمات البلدية
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-col md:flex-row gap-4 mb-6">
+              <Select value={statusFilter} onValueChange={setStatusFilter}>
+                <SelectTrigger className="md:w-48">
+                  <SelectValue placeholder="الحالة" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">كل الحالات</SelectItem>
+                  {Object.entries(STATUSES).map(([key, label]) => (
+                    <SelectItem key={key} value={key}>{label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+                <SelectTrigger className="md:w-48">
+                  <SelectValue placeholder="الفئة" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">كل الفئات</SelectItem>
+                  {Object.entries(CATEGORIES).map(([key, label]) => (
+                    <SelectItem key={key} value={key}>{label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              {user.role === 'municipal_admin' && userDistricts.length > 0 && (
+                <Select value={districtFilter} onValueChange={setDistrictFilter}>
+                  <SelectTrigger className="md:w-48">
+                    <SelectValue placeholder="الحي" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">كل الأحياء</SelectItem>
+                    {userDistricts.map(district => (
+                      <SelectItem key={district.id} value={district.id}>
+                        {district.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
+
+            <div className="rounded-md border">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>رمز التتبع</TableHead>
+                    <TableHead>الفئة</TableHead>
+                    <TableHead>الحالة</TableHead>
+                    <TableHead>الوصف</TableHead>
+                    <TableHead>التاريخ</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {userRequests.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={5} className="text-center text-muted-foreground py-8">
+                        لا توجد طلبات
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    userRequests.map(request => (
+                      <TableRow key={request.id}>
+                        <TableCell className="font-mono font-semibold">
+                          {request.trackingCode}
+                          {isOverdue(request) && (
+                            <Badge variant="destructive" className="mr-2 text-xs">متأخر</Badge>
+                          )}
+                        </TableCell>
+                        <TableCell>{CATEGORIES[request.category]}</TableCell>
+                        <TableCell>
+                          <Badge className={STATUS_COLORS[request.status]}>
+                            {STATUSES[request.status]}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="max-w-xs truncate">
+                          {request.description}
+                        </TableCell>
+                        <TableCell className="text-sm text-muted-foreground">
+                          {formatRelativeTime(request.createdAt)}
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+          </CardContent>
+        </Card>
+      </main>
+    </div>
+  )
+}
