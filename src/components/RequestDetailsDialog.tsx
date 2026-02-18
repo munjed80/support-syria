@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { toast } from 'sonner'
-import { MapPin, Clock, User as UserIcon, CheckCircle, XCircle, CircleNotch, Image as ImageIcon } from '@phosphor-icons/react'
+import { MapPin, Clock, User as UserIcon, CheckCircle, XCircle, CircleNotch, Image as ImageIcon, Warning } from '@phosphor-icons/react'
 import {
   CATEGORIES,
   STATUSES,
@@ -237,6 +237,8 @@ export function RequestDetailsDialog({ request, open, onOpenChange, currentUser 
             ? {
                 ...r,
                 priority: newPriority as Priority,
+                isAutoEscalated: false,
+                priorityEscalatedAt: undefined,
                 updatedAt: now
               }
             : r
@@ -248,7 +250,9 @@ export function RequestDetailsDialog({ request, open, onOpenChange, currentUser 
         requestId: request.id,
         actorUserId: currentUser.id,
         actorName: currentUser.name,
-        message: `تم تغيير الأولوية من "${PRIORITIES[request.priority]}" إلى "${PRIORITIES[newPriority as Priority]}"`,
+        message: `تم تغيير الأولوية من "${PRIORITIES[request.priority]}" إلى "${PRIORITIES[newPriority as Priority]}" ${request.isAutoEscalated ? '(كانت مرقاة تلقائياً)' : ''}`,
+        fromPriority: request.priority,
+        toPriority: newPriority as Priority,
         isInternal: true,
         createdAt: now
       }
@@ -289,6 +293,11 @@ export function RequestDetailsDialog({ request, open, onOpenChange, currentUser 
                 <Badge className={PRIORITY_BADGE_COLORS[request.priority]}>
                   {PRIORITIES[request.priority]}
                 </Badge>
+                {request.isAutoEscalated && (
+                  <Badge variant="outline" className="text-xs border-[oklch(0.70_0.15_65)] text-[oklch(0.70_0.15_65)]">
+                    ترقية تلقائية
+                  </Badge>
+                )}
               </div>
               <DialogDescription>
                 رمز التتبع: <span className="font-mono text-base">{request.trackingCode}</span>
@@ -481,8 +490,11 @@ export function RequestDetailsDialog({ request, open, onOpenChange, currentUser 
                         <div className="absolute right-4 top-10 bottom-0 w-px bg-border" />
                       )}
                       <div className="flex gap-4">
-                        <div className="relative z-10 flex-shrink-0 w-8 h-8 rounded-full bg-card border-2 border-border flex items-center justify-center">
+                        <div className={`relative z-10 flex-shrink-0 w-8 h-8 rounded-full ${update.isAutoEscalation ? 'bg-[oklch(0.70_0.15_65)]/10 border-2 border-[oklch(0.70_0.15_65)]' : 'bg-card border-2 border-border'} flex items-center justify-center`}>
                           {update.toStatus && getStatusIcon(update.toStatus)}
+                          {update.isAutoEscalation && !update.toStatus && (
+                            <Warning size={16} className="text-[oklch(0.70_0.15_65)]" />
+                          )}
                         </div>
                         <div className="flex-1 pb-4">
                           <div className="flex items-center justify-between mb-1">
@@ -492,7 +504,12 @@ export function RequestDetailsDialog({ request, open, onOpenChange, currentUser 
                                   {STATUSES[update.toStatus]}
                                 </Badge>
                               )}
-                              {update.isInternal && (
+                              {update.isAutoEscalation && (
+                                <Badge className="text-xs bg-[oklch(0.70_0.15_65)] text-[oklch(0.25_0.05_60)]">
+                                  ترقية تلقائية
+                                </Badge>
+                              )}
+                              {update.isInternal && !update.isAutoEscalation && (
                                 <Badge variant="secondary" className="text-xs">
                                   داخلي
                                 </Badge>
@@ -502,9 +519,14 @@ export function RequestDetailsDialog({ request, open, onOpenChange, currentUser 
                               {formatRelativeTime(update.createdAt)}
                             </span>
                           </div>
-                          {update.actorName && (
+                          {update.actorName && !update.isAutoEscalation && (
                             <p className="text-xs text-muted-foreground mb-1">
                               بواسطة: {update.actorName}
+                            </p>
+                          )}
+                          {update.isAutoEscalation && (
+                            <p className="text-xs text-[oklch(0.70_0.15_65)] mb-1">
+                              النظام الآلي
                             </p>
                           )}
                           {update.message && (

@@ -3,6 +3,7 @@ import { Toaster } from '@/components/ui/sonner'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { AuthProvider, useAuth } from '@/hooks/use-auth'
+import { usePriorityEscalation } from '@/hooks/use-priority-escalation'
 import { SubmitRequestForm } from '@/components/SubmitRequestForm'
 import { TrackRequest } from '@/components/TrackRequest'
 import { LoginForm } from '@/components/LoginForm'
@@ -13,6 +14,8 @@ import { Buildings } from '@phosphor-icons/react'
 function AppContent() {
   const { currentUser, login, logout, isAuthenticated } = useAuth()
   const [activeTab, setActiveTab] = useState('submit')
+
+  usePriorityEscalation()
 
   useEffect(() => {
     const hash = window.location.hash

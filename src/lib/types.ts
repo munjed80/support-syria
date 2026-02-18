@@ -43,6 +43,8 @@ export interface ServiceRequest {
   assignedToName?: string
   rejectionReason?: string
   completionPhotoUrl?: string
+  priorityEscalatedAt?: string
+  isAutoEscalated?: boolean
   createdAt: string
   updatedAt: string
   closedAt?: string
@@ -56,6 +58,9 @@ export interface RequestUpdate {
   message?: string
   fromStatus?: RequestStatus
   toStatus?: RequestStatus
+  fromPriority?: Priority
+  toPriority?: Priority
+  isAutoEscalation?: boolean
   isInternal: boolean
   createdAt: string
 }

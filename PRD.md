@@ -55,11 +55,18 @@ This is a multi-role system with distinct dashboards for citizens, district staf
 - **Success criteria**: Invalid transitions blocked, required fields enforced, audit log entry created
 
 ### Priority Management
-- **Functionality**: Dynamic priority assignment and tracking with visual indicators
-- **Purpose**: Enable efficient resource allocation and highlight urgent issues requiring immediate attention
-- **Trigger**: District/Municipal admin changes priority level
-- **Progression**: View request → Select priority (LOW/NORMAL/HIGH/URGENT) → Confirm → System updates request and records change in timeline → Dashboard reflects new priority order
-- **Success criteria**: Priority changes persist, URGENT requests always sort first, visual highlighting in all dashboards, priority filter works, changes logged in audit trail
+- **Functionality**: Dynamic priority assignment and tracking with visual indicators and automatic escalation based on request age
+- **Purpose**: Enable efficient resource allocation, highlight urgent issues requiring immediate attention, and ensure older requests don't languish without proper escalation
+- **Trigger**: District/Municipal admin changes priority level OR automatic escalation based on configurable time thresholds
+- **Progression**: View request → Select priority (LOW/NORMAL/HIGH/URGENT) → Confirm → System updates request and records change in timeline → Dashboard reflects new priority order | Automatic escalation: System checks all open requests every minute → If request age exceeds threshold → Automatically escalate priority → Record auto-escalation in timeline with reason
+- **Success criteria**: Priority changes persist, URGENT requests always sort first, visual highlighting in all dashboards (red border for auto-escalated urgent), priority filter works, changes logged in audit trail with clear distinction between manual and automatic escalations, escalation rules are configurable via constants (LOW→NORMAL after 48h, NORMAL→HIGH after 72h, HIGH→URGENT after 48h), admins can see "تلقائي" badge on auto-escalated requests
+
+### Automatic Priority Escalation
+- **Functionality**: Background process that automatically escalates request priority based on age and configurable time thresholds
+- **Purpose**: Ensure older service requests receive increased attention and prevent issues from being neglected
+- **Trigger**: Automatic check runs every 60 seconds on all open requests
+- **Progression**: System evaluates all non-closed requests → Calculates time since creation or last escalation → Compares against escalation thresholds → Escalates priority if threshold exceeded → Records escalation in timeline with Arabic message showing hours passed → Updates request with auto-escalation flag → Visual indicators appear in dashboards
+- **Success criteria**: Escalations occur automatically without admin intervention, escalation rules configurable via PRIORITY_ESCALATION_RULES constant (LOW: 48 hours, NORMAL: 72 hours, HIGH: 48 hours), auto-escalated requests show "ترقية تلقائية" badge, timeline entries clearly indicate automatic vs manual changes with "النظام الآلي" attribution, admins can manually override auto-escalated priorities (which resets escalation timer), urgent auto-escalated requests have distinct visual highlight (red left border)
 
 ### SLA Tracking and Overdue Alerts
 - **Functionality**: Automatic calculation of request age against category-based SLA targets

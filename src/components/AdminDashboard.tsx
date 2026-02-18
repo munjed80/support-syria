@@ -263,7 +263,7 @@ export function AdminDashboard({ user, onLogout }: AdminDashboardProps) {
                     userRequests.map(request => (
                       <TableRow 
                         key={request.id}
-                        className={`cursor-pointer hover:bg-muted/50 ${request.priority === 'urgent' ? 'bg-destructive/5' : ''}`}
+                        className={`cursor-pointer hover:bg-muted/50 ${request.priority === 'urgent' ? 'bg-destructive/5 border-l-4 border-l-destructive' : ''}`}
                         onClick={() => handleRequestClick(request)}
                       >
                         <TableCell className="font-mono font-semibold">
@@ -273,9 +273,16 @@ export function AdminDashboard({ user, onLogout }: AdminDashboardProps) {
                           )}
                         </TableCell>
                         <TableCell>
-                          <Badge className={PRIORITY_BADGE_COLORS[request.priority]}>
-                            {PRIORITIES[request.priority]}
-                          </Badge>
+                          <div className="flex items-center gap-2">
+                            <Badge className={PRIORITY_BADGE_COLORS[request.priority]}>
+                              {PRIORITIES[request.priority]}
+                            </Badge>
+                            {request.isAutoEscalated && (
+                              <Badge variant="outline" className="text-xs border-[oklch(0.70_0.15_65)] text-[oklch(0.70_0.15_65)]">
+                                تلقائي
+                              </Badge>
+                            )}
+                          </div>
                         </TableCell>
                         <TableCell>{CATEGORIES[request.category]}</TableCell>
                         <TableCell>

@@ -67,6 +67,13 @@ export const CATEGORY_SLA: Record<RequestCategory, number> = {
   other: 5
 }
 
+export const PRIORITY_ESCALATION_RULES: Record<Priority, { hoursToNextLevel: number; nextPriority: Priority | null }> = {
+  low: { hoursToNextLevel: 48, nextPriority: 'normal' },
+  normal: { hoursToNextLevel: 72, nextPriority: 'high' },
+  high: { hoursToNextLevel: 48, nextPriority: 'urgent' },
+  urgent: { hoursToNextLevel: Infinity, nextPriority: null }
+}
+
 export function generateTrackingCode(): string {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
   let code = ''
@@ -142,4 +149,52 @@ export function canTransitionTo(from: RequestStatus, to: RequestStatus): boolean
 
 export function getValidNextStatuses(current: RequestStatus): RequestStatus[] {
   return STATUS_TRANSITIONS[current] || []
+}
+
+export function shouldEscalatePriority(request: { 
+  createdAt: string
+  priority: Priority
+  status: RequestStatus
+  priorityEscalatedAt?: string
+}): { shouldEscalate: boolean; newPriority: Priority | null; hoursSinceCreation: number } {
+  if (request.status === 'completed' || request.status === 'rejected') {
+    return { shouldEscalate: false, newPriority: null, hoursSinceCreation: 0 }
+  }
+
+  const baseDate = request.priorityEscalatedAt || request.createdAt
+  const baseDateObj = new Date(baseDate)
+  const now = new Date()
+  const hoursPassed = Math.floor((now.getTime() - baseDateObj.getTime()) / (1000 * 60 * 60))
+
+  const escalationRule = PRIORITY_ESCALATION_RULES[request.priority]
+  
+  if (escalationRule.nextPriority && hoursPassed >= escalationRule.hoursToNextLevel) {
+    return { 
+      shouldEscalate: true, 
+      newPriority: escalationRule.nextPriority,
+      hoursSinceCreation: hoursPassed
+    }
+  }
+
+  return { shouldEscalate: false, newPriority: null, hoursSinceCreation: hoursPassed }
+}
+
+export function getHoursUntilNextEscalation(request: { 
+  createdAt: string
+  priority: Priority
+  priorityEscalatedAt?: string
+}): number | null {
+  const baseDate = request.priorityEscalatedAt || request.createdAt
+  const baseDateObj = new Date(baseDate)
+  const now = new Date()
+  const hoursPassed = Math.floor((now.getTime() - baseDateObj.getTime()) / (1000 * 60 * 60))
+
+  const escalationRule = PRIORITY_ESCALATION_RULES[request.priority]
+  
+  if (!escalationRule.nextPriority) {
+    return null
+  }
+
+  const hoursRemaining = escalationRule.hoursToNextLevel - hoursPassed
+  return Math.max(0, hoursRemaining)
 }
