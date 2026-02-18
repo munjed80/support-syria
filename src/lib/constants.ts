@@ -67,6 +67,42 @@ export const CATEGORY_SLA: Record<RequestCategory, number> = {
   other: 5
 }
 
+export const CATEGORY_ESCALATION_RULES: Record<
+  RequestCategory,
+  Record<Priority, { hoursToNextLevel: number; nextPriority: Priority | null }>
+> = {
+  water: {
+    low: { hoursToNextLevel: 12, nextPriority: 'normal' },
+    normal: { hoursToNextLevel: 12, nextPriority: 'high' },
+    high: { hoursToNextLevel: 6, nextPriority: 'urgent' },
+    urgent: { hoursToNextLevel: Infinity, nextPriority: null }
+  },
+  waste: {
+    low: { hoursToNextLevel: 24, nextPriority: 'normal' },
+    normal: { hoursToNextLevel: 24, nextPriority: 'high' },
+    high: { hoursToNextLevel: 12, nextPriority: 'urgent' },
+    urgent: { hoursToNextLevel: Infinity, nextPriority: null }
+  },
+  lighting: {
+    low: { hoursToNextLevel: 48, nextPriority: 'normal' },
+    normal: { hoursToNextLevel: 72, nextPriority: 'high' },
+    high: { hoursToNextLevel: 48, nextPriority: 'urgent' },
+    urgent: { hoursToNextLevel: Infinity, nextPriority: null }
+  },
+  roads: {
+    low: { hoursToNextLevel: 72, nextPriority: 'normal' },
+    normal: { hoursToNextLevel: 120, nextPriority: 'high' },
+    high: { hoursToNextLevel: 72, nextPriority: 'urgent' },
+    urgent: { hoursToNextLevel: Infinity, nextPriority: null }
+  },
+  other: {
+    low: { hoursToNextLevel: 48, nextPriority: 'normal' },
+    normal: { hoursToNextLevel: 72, nextPriority: 'high' },
+    high: { hoursToNextLevel: 48, nextPriority: 'urgent' },
+    urgent: { hoursToNextLevel: Infinity, nextPriority: null }
+  }
+}
+
 export const PRIORITY_ESCALATION_RULES: Record<Priority, { hoursToNextLevel: number; nextPriority: Priority | null }> = {
   low: { hoursToNextLevel: 48, nextPriority: 'normal' },
   normal: { hoursToNextLevel: 72, nextPriority: 'high' },
@@ -155,6 +191,7 @@ export function shouldEscalatePriority(request: {
   createdAt: string
   priority: Priority
   status: RequestStatus
+  category: RequestCategory
   priorityEscalatedAt?: string
 }): { shouldEscalate: boolean; newPriority: Priority | null; hoursSinceCreation: number } {
   if (request.status === 'completed' || request.status === 'rejected') {
@@ -166,7 +203,7 @@ export function shouldEscalatePriority(request: {
   const now = new Date()
   const hoursPassed = Math.floor((now.getTime() - baseDateObj.getTime()) / (1000 * 60 * 60))
 
-  const escalationRule = PRIORITY_ESCALATION_RULES[request.priority]
+  const escalationRule = CATEGORY_ESCALATION_RULES[request.category][request.priority]
   
   if (escalationRule.nextPriority && hoursPassed >= escalationRule.hoursToNextLevel) {
     return { 
@@ -182,6 +219,7 @@ export function shouldEscalatePriority(request: {
 export function getHoursUntilNextEscalation(request: { 
   createdAt: string
   priority: Priority
+  category: RequestCategory
   priorityEscalatedAt?: string
 }): number | null {
   const baseDate = request.priorityEscalatedAt || request.createdAt
@@ -189,7 +227,7 @@ export function getHoursUntilNextEscalation(request: {
   const now = new Date()
   const hoursPassed = Math.floor((now.getTime() - baseDateObj.getTime()) / (1000 * 60 * 60))
 
-  const escalationRule = PRIORITY_ESCALATION_RULES[request.priority]
+  const escalationRule = CATEGORY_ESCALATION_RULES[request.category][request.priority]
   
   if (!escalationRule.nextPriority) {
     return null
@@ -197,4 +235,13 @@ export function getHoursUntilNextEscalation(request: {
 
   const hoursRemaining = escalationRule.hoursToNextLevel - hoursPassed
   return Math.max(0, hoursRemaining)
+}
+
+export function getCategoryEscalationInfo(category: RequestCategory): string {
+  const rules = CATEGORY_ESCALATION_RULES[category]
+  const lowToNormal = rules.low.hoursToNextLevel
+  const normalToHigh = rules.normal.hoursToNextLevel
+  const highToUrgent = rules.high.hoursToNextLevel
+  
+  return `${CATEGORIES[category]}: ${lowToNormal}س → ${normalToHigh}س → ${highToUrgent}س`
 }

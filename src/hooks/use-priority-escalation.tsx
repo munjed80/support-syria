@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { useKV } from '@github/spark/hooks'
-import { shouldEscalatePriority, PRIORITIES, generateId } from '@/lib/constants'
+import { shouldEscalatePriority, PRIORITIES, CATEGORIES, generateId } from '@/lib/constants'
 import type { ServiceRequest, RequestUpdate, Priority } from '@/lib/types'
 
 const ESCALATION_CHECK_INTERVAL = 60 * 1000
@@ -37,7 +37,7 @@ export function usePriorityEscalation() {
           const escalationUpdate: RequestUpdate = {
             id: generateId(),
             requestId: request.id,
-            message: `تمت ترقية الأولوية تلقائياً من "${PRIORITIES[oldPriority]}" إلى "${PRIORITIES[escalationCheck.newPriority as Priority]}" بعد مرور ${escalationCheck.hoursSinceCreation} ساعة`,
+            message: `تمت ترقية الأولوية تلقائياً من "${PRIORITIES[oldPriority]}" إلى "${PRIORITIES[escalationCheck.newPriority as Priority]}" لطلب "${CATEGORIES[request.category]}" بعد مرور ${escalationCheck.hoursSinceCreation} ساعة (قاعدة الترقية التلقائية حسب الفئة)`,
             fromPriority: oldPriority,
             toPriority: escalationCheck.newPriority as Priority,
             isAutoEscalation: true,

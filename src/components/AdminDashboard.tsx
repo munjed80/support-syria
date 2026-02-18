@@ -5,6 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import {
   Table,
   TableBody,
@@ -13,8 +14,8 @@ import {
   TableHeader,
   TableRow
 } from '@/components/ui/table'
-import { SignOut, ChartBar, Buildings, Warning, ClipboardText } from '@phosphor-icons/react'
-import { CATEGORIES, STATUSES, STATUS_COLORS, PRIORITIES, PRIORITY_BADGE_COLORS, PRIORITY_ORDER, formatRelativeTime, isOverdue } from '@/lib/constants'
+import { SignOut, ChartBar, Buildings, Warning, ClipboardText, Info } from '@phosphor-icons/react'
+import { CATEGORIES, STATUSES, STATUS_COLORS, PRIORITIES, PRIORITY_BADGE_COLORS, PRIORITY_ORDER, CATEGORY_ESCALATION_RULES, formatRelativeTime, isOverdue } from '@/lib/constants'
 import { RequestDetailsDialog } from '@/components/RequestDetailsDialog'
 import type { ServiceRequest, User, District } from '@/lib/types'
 
@@ -120,6 +121,26 @@ export function AdminDashboard({ user, onLogout }: AdminDashboardProps) {
       </header>
 
       <main className="container mx-auto px-4 py-8">
+        <Alert className="mb-8 border-[oklch(0.55_0.10_250)] bg-[oklch(0.55_0.10_250)]/5">
+          <Info className="h-4 w-4 text-[oklch(0.55_0.10_250)]" />
+          <AlertTitle>قواعد الترقية التلقائية حسب الفئة</AlertTitle>
+          <AlertDescription className="mt-2 text-sm space-y-1">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+              {Object.entries(CATEGORY_ESCALATION_RULES).map(([category, rules]) => (
+                <div key={category} className="flex items-center gap-2">
+                  <span className="font-semibold">{CATEGORIES[category as keyof typeof CATEGORIES]}:</span>
+                  <span className="text-xs">
+                    {rules.low.hoursToNextLevel}س → {rules.normal.hoursToNextLevel}س → {rules.high.hoursToNextLevel}س
+                  </span>
+                </div>
+              ))}
+            </div>
+            <p className="text-xs text-muted-foreground mt-2">
+              * الأرقام تمثل الوقت بالساعات قبل الترقية التلقائية من منخفض → عادي → مرتفع → عاجل
+            </p>
+          </AlertDescription>
+        </Alert>
+
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
           <Card>
             <CardHeader className="pb-3">
