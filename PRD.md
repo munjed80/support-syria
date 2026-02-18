@@ -54,6 +54,13 @@ This is a multi-role system with distinct dashboards for citizens, district staf
 - **Progression**: Select new status → System validates transition → If REJECTED, require reason → If COMPLETED, require "after" photo → Confirm → Update saved
 - **Success criteria**: Invalid transitions blocked, required fields enforced, audit log entry created
 
+### Priority Management
+- **Functionality**: Dynamic priority assignment and tracking with visual indicators
+- **Purpose**: Enable efficient resource allocation and highlight urgent issues requiring immediate attention
+- **Trigger**: District/Municipal admin changes priority level
+- **Progression**: View request → Select priority (LOW/NORMAL/HIGH/URGENT) → Confirm → System updates request and records change in timeline → Dashboard reflects new priority order
+- **Success criteria**: Priority changes persist, URGENT requests always sort first, visual highlighting in all dashboards, priority filter works, changes logged in audit trail
+
 ### SLA Tracking and Overdue Alerts
 - **Functionality**: Automatic calculation of request age against category-based SLA targets
 - **Purpose**: Highlight performance gaps and prevent requests from languishing

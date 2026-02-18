@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { MagnifyingGlass, MapPin, Clock, CheckCircle, XCircle, CircleNotch } from '@phosphor-icons/react'
-import { CATEGORIES, STATUSES, STATUS_COLORS, formatDate, formatRelativeTime } from '@/lib/constants'
+import { CATEGORIES, STATUSES, STATUS_COLORS, PRIORITIES, PRIORITY_BADGE_COLORS, formatDate, formatRelativeTime } from '@/lib/constants'
 import type { ServiceRequest, RequestUpdate, District } from '@/lib/types'
 
 interface TrackRequestProps {
@@ -86,10 +86,13 @@ export function TrackRequest({ initialCode }: TrackRequestProps) {
             <CardHeader>
               <div className="flex items-start justify-between">
                 <div className="space-y-1">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <CardTitle className="text-xl">{CATEGORIES[request.category]}</CardTitle>
                     <Badge className={STATUS_COLORS[request.status]}>
                       {STATUSES[request.status]}
+                    </Badge>
+                    <Badge className={PRIORITY_BADGE_COLORS[request.priority]}>
+                      {PRIORITIES[request.priority]}
                     </Badge>
                   </div>
                   <CardDescription>

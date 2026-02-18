@@ -14,13 +14,15 @@ import {
   CATEGORIES,
   STATUSES,
   STATUS_COLORS,
+  PRIORITIES,
+  PRIORITY_BADGE_COLORS,
   formatDate,
   formatRelativeTime,
   getValidNextStatuses,
   canTransitionTo,
   generateId
 } from '@/lib/constants'
-import type { ServiceRequest, RequestUpdate, User, District, RequestStatus } from '@/lib/types'
+import type { ServiceRequest, RequestUpdate, User, District, RequestStatus, Priority } from '@/lib/types'
 
 interface RequestDetailsDialogProps {
   request: ServiceRequest | null
@@ -36,6 +38,7 @@ export function RequestDetailsDialog({ request, open, onOpenChange, currentUser 
   const [users] = useKV<User[]>('users', [])
 
   const [newStatus, setNewStatus] = useState<string>('')
+  const [newPriority, setNewPriority] = useState<string>('')
   const [internalNote, setInternalNote] = useState('')
   const [rejectionReason, setRejectionReason] = useState('')
   const [completionPhoto, setCompletionPhoto] = useState<string>('')
@@ -213,6 +216,54 @@ export function RequestDetailsDialog({ request, open, onOpenChange, currentUser 
     }
   }
 
+  const handlePriorityChange = async () => {
+    if (!newPriority) {
+      toast.error('يرجى اختيار الأولوية')
+      return
+    }
+
+    if (newPriority === request.priority) {
+      toast.error('الأولوية لم تتغير')
+      return
+    }
+
+    setSaving(true)
+    try {
+      const now = new Date().toISOString()
+      
+      setRequests((current) =>
+        (current || []).map(r =>
+          r.id === request.id
+            ? {
+                ...r,
+                priority: newPriority as Priority,
+                updatedAt: now
+              }
+            : r
+        )
+      )
+
+      const priorityUpdate: RequestUpdate = {
+        id: generateId(),
+        requestId: request.id,
+        actorUserId: currentUser.id,
+        actorName: currentUser.name,
+        message: `تم تغيير الأولوية من "${PRIORITIES[request.priority]}" إلى "${PRIORITIES[newPriority as Priority]}"`,
+        isInternal: true,
+        createdAt: now
+      }
+
+      setUpdates((current) => [...(current || []), priorityUpdate])
+
+      toast.success('تم تحديث الأولوية بنجاح')
+      setNewPriority('')
+    } catch (error) {
+      toast.error('حدث خطأ أثناء تحديث الأولوية')
+    } finally {
+      setSaving(false)
+    }
+  }
+
   const getStatusIcon = (status: string) => {
     switch (status) {
       case 'submitted': return <CircleNotch className="animate-spin" />
@@ -230,10 +281,13 @@ export function RequestDetailsDialog({ request, open, onOpenChange, currentUser 
         <DialogHeader>
           <div className="flex items-start justify-between gap-4">
             <div className="space-y-1">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <DialogTitle className="text-xl">{CATEGORIES[request.category]}</DialogTitle>
                 <Badge className={STATUS_COLORS[request.status]}>
                   {STATUSES[request.status]}
+                </Badge>
+                <Badge className={PRIORITY_BADGE_COLORS[request.priority]}>
+                  {PRIORITIES[request.priority]}
                 </Badge>
               </div>
               <DialogDescription>
@@ -298,6 +352,27 @@ export function RequestDetailsDialog({ request, open, onOpenChange, currentUser 
           {(currentUser.role === 'district_admin' || currentUser.role === 'municipal_admin') && (
             <div className="space-y-4">
               <h3 className="font-semibold text-lg">الإجراءات</h3>
+
+              <div className="space-y-2">
+                <Label>تغيير الأولوية</Label>
+                <div className="flex gap-2">
+                  <Select value={newPriority} onValueChange={setNewPriority}>
+                    <SelectTrigger className="flex-1">
+                      <SelectValue placeholder={`الأولوية الحالية: ${PRIORITIES[request.priority]}`} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {Object.entries(PRIORITIES).map(([key, label]) => (
+                        <SelectItem key={key} value={key}>
+                          {label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Button onClick={handlePriorityChange} disabled={saving || !newPriority}>
+                    تحديث
+                  </Button>
+                </div>
+              </div>
 
               {!request.assignedToUserId && staffMembers.length > 0 && (
                 <div className="space-y-2">

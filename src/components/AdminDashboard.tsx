@@ -14,7 +14,7 @@ import {
   TableRow
 } from '@/components/ui/table'
 import { SignOut, ChartBar, Buildings, Warning, ClipboardText } from '@phosphor-icons/react'
-import { CATEGORIES, STATUSES, STATUS_COLORS, formatRelativeTime, isOverdue } from '@/lib/constants'
+import { CATEGORIES, STATUSES, STATUS_COLORS, PRIORITIES, PRIORITY_BADGE_COLORS, PRIORITY_ORDER, formatRelativeTime, isOverdue } from '@/lib/constants'
 import { RequestDetailsDialog } from '@/components/RequestDetailsDialog'
 import type { ServiceRequest, User, District } from '@/lib/types'
 
@@ -30,6 +30,7 @@ export function AdminDashboard({ user, onLogout }: AdminDashboardProps) {
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [categoryFilter, setCategoryFilter] = useState<string>('all')
   const [districtFilter, setDistrictFilter] = useState<string>('all')
+  const [priorityFilter, setPriorityFilter] = useState<string>('all')
   const [activeView, setActiveView] = useState<string>('all')
   const [selectedRequest, setSelectedRequest] = useState<ServiceRequest | null>(null)
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -60,11 +61,21 @@ export function AdminDashboard({ user, onLogout }: AdminDashboardProps) {
     if (districtFilter !== 'all') {
       filtered = filtered.filter(r => r.districtId === districtFilter)
     }
+
+    if (priorityFilter !== 'all') {
+      if (priorityFilter === 'urgent') {
+        filtered = filtered.filter(r => r.priority === 'urgent')
+      } else {
+        filtered = filtered.filter(r => r.priority === priorityFilter)
+      }
+    }
     
-    return filtered.sort((a, b) => 
-      new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-    )
-  }, [requests, statusFilter, categoryFilter, districtFilter, activeView, user])
+    return filtered.sort((a, b) => {
+      const priorityDiff = PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority]
+      if (priorityDiff !== 0) return priorityDiff
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    })
+  }, [requests, statusFilter, categoryFilter, districtFilter, priorityFilter, activeView, user])
 
   const stats = useMemo(() => {
     const all = userRequests
@@ -72,7 +83,8 @@ export function AdminDashboard({ user, onLogout }: AdminDashboardProps) {
       total: all.length,
       open: all.filter(r => r.status !== 'completed' && r.status !== 'rejected').length,
       completed: all.filter(r => r.status === 'completed').length,
-      overdue: all.filter(r => isOverdue(r)).length
+      overdue: all.filter(r => isOverdue(r)).length,
+      urgent: all.filter(r => r.priority === 'urgent').length
     }
   }, [userRequests])
 
@@ -139,10 +151,10 @@ export function AdminDashboard({ user, onLogout }: AdminDashboardProps) {
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className="border-destructive/50">
             <CardHeader className="pb-3">
-              <CardDescription>المتأخرة</CardDescription>
-              <CardTitle className="text-3xl text-destructive">{stats.overdue}</CardTitle>
+              <CardDescription>الطلبات العاجلة</CardDescription>
+              <CardTitle className="text-3xl text-destructive">{stats.urgent}</CardTitle>
             </CardHeader>
             <CardContent>
               <Warning size={24} className="text-destructive" />
@@ -197,6 +209,19 @@ export function AdminDashboard({ user, onLogout }: AdminDashboardProps) {
                 </SelectContent>
               </Select>
 
+              <Select value={priorityFilter} onValueChange={setPriorityFilter}>
+                <SelectTrigger className="md:w-48">
+                  <SelectValue placeholder="الأولوية" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">كل الأولويات</SelectItem>
+                  <SelectItem value="urgent">عاجل فقط</SelectItem>
+                  {Object.entries(PRIORITIES).map(([key, label]) => (
+                    <SelectItem key={key} value={key}>{label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
               {user.role === 'municipal_admin' && userDistricts.length > 0 && (
                 <Select value={districtFilter} onValueChange={setDistrictFilter}>
                   <SelectTrigger className="md:w-48">
@@ -219,6 +244,7 @@ export function AdminDashboard({ user, onLogout }: AdminDashboardProps) {
                 <TableHeader>
                   <TableRow>
                     <TableHead>رمز التتبع</TableHead>
+                    <TableHead>الأولوية</TableHead>
                     <TableHead>الفئة</TableHead>
                     <TableHead>الحالة</TableHead>
                     <TableHead>الوصف</TableHead>
@@ -229,7 +255,7 @@ export function AdminDashboard({ user, onLogout }: AdminDashboardProps) {
                 <TableBody>
                   {userRequests.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={user.role !== 'staff' ? 6 : 5} className="text-center text-muted-foreground py-8">
+                      <TableCell colSpan={user.role !== 'staff' ? 7 : 6} className="text-center text-muted-foreground py-8">
                         لا توجد طلبات
                       </TableCell>
                     </TableRow>
@@ -237,7 +263,7 @@ export function AdminDashboard({ user, onLogout }: AdminDashboardProps) {
                     userRequests.map(request => (
                       <TableRow 
                         key={request.id}
-                        className="cursor-pointer hover:bg-muted/50"
+                        className={`cursor-pointer hover:bg-muted/50 ${request.priority === 'urgent' ? 'bg-destructive/5' : ''}`}
                         onClick={() => handleRequestClick(request)}
                       >
                         <TableCell className="font-mono font-semibold">
@@ -245,6 +271,11 @@ export function AdminDashboard({ user, onLogout }: AdminDashboardProps) {
                           {isOverdue(request) && (
                             <Badge variant="destructive" className="mr-2 text-xs">متأخر</Badge>
                           )}
+                        </TableCell>
+                        <TableCell>
+                          <Badge className={PRIORITY_BADGE_COLORS[request.priority]}>
+                            {PRIORITIES[request.priority]}
+                          </Badge>
                         </TableCell>
                         <TableCell>{CATEGORIES[request.category]}</TableCell>
                         <TableCell>

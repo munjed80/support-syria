@@ -24,6 +24,7 @@ export const ROLES: Record<UserRole, string> = {
 }
 
 export const PRIORITIES: Record<Priority, string> = {
+  low: 'منخفض',
   normal: 'عادي',
   high: 'مرتفع',
   urgent: 'عاجل'
@@ -38,9 +39,24 @@ export const STATUS_COLORS: Record<RequestStatus, string> = {
 }
 
 export const PRIORITY_COLORS: Record<Priority, string> = {
+  low: 'text-muted-foreground',
   normal: 'text-muted-foreground',
   high: 'text-[oklch(0.70_0.15_65)]',
   urgent: 'text-destructive'
+}
+
+export const PRIORITY_BADGE_COLORS: Record<Priority, string> = {
+  low: 'bg-muted text-muted-foreground',
+  normal: 'bg-muted text-muted-foreground',
+  high: 'bg-[oklch(0.70_0.15_65)] text-[oklch(0.25_0.05_60)]',
+  urgent: 'bg-destructive text-destructive-foreground'
+}
+
+export const PRIORITY_ORDER: Record<Priority, number> = {
+  urgent: 0,
+  high: 1,
+  normal: 2,
+  low: 3
 }
 
 export const CATEGORY_SLA: Record<RequestCategory, number> = {

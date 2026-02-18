@@ -4,7 +4,7 @@ export type RequestCategory = 'lighting' | 'water' | 'waste' | 'roads' | 'other'
 
 export type RequestStatus = 'submitted' | 'received' | 'in_progress' | 'completed' | 'rejected'
 
-export type Priority = 'normal' | 'high' | 'urgent'
+export type Priority = 'low' | 'normal' | 'high' | 'urgent'
 
 export interface Municipality {
   id: string
