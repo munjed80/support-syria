@@ -83,6 +83,7 @@ export function LoginForm({ onLogin }: LoginFormProps) {
             <div className="space-y-1 text-muted-foreground">
               <p>مدير بلدي: <span className="font-mono">admin@mun.sa</span> / <span className="font-mono">admin123</span></p>
               <p>مدير حي: <span className="font-mono">district1@mun.sa</span> / <span className="font-mono">pass123</span></p>
+              <p>موظف ميداني: <span className="font-mono">staff1@mun.sa</span> / <span className="font-mono">staff123</span></p>
             </div>
           </div>
         </CardContent>

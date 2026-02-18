@@ -39,6 +39,10 @@ export interface ServiceRequest {
   locationLat?: number
   locationLng?: number
   addressText?: string
+  assignedToUserId?: string
+  assignedToName?: string
+  rejectionReason?: string
+  completionPhotoUrl?: string
   createdAt: string
   updatedAt: string
   closedAt?: string

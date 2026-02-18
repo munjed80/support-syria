@@ -111,3 +111,19 @@ export function formatRelativeTime(dateString: string): string {
   
   return formatDate(dateString)
 }
+
+const STATUS_TRANSITIONS: Record<RequestStatus, RequestStatus[]> = {
+  submitted: ['received'],
+  received: ['in_progress'],
+  in_progress: ['completed', 'rejected'],
+  completed: [],
+  rejected: []
+}
+
+export function canTransitionTo(from: RequestStatus, to: RequestStatus): boolean {
+  return STATUS_TRANSITIONS[from]?.includes(to) || false
+}
+
+export function getValidNextStatuses(current: RequestStatus): RequestStatus[] {
+  return STATUS_TRANSITIONS[current] || []
+}

@@ -13,8 +13,9 @@ import {
   TableHeader,
   TableRow
 } from '@/components/ui/table'
-import { SignOut, ChartBar, Buildings, Warning } from '@phosphor-icons/react'
+import { SignOut, ChartBar, Buildings, Warning, ClipboardText } from '@phosphor-icons/react'
 import { CATEGORIES, STATUSES, STATUS_COLORS, formatRelativeTime, isOverdue } from '@/lib/constants'
+import { RequestDetailsDialog } from '@/components/RequestDetailsDialog'
 import type { ServiceRequest, User, District } from '@/lib/types'
 
 interface AdminDashboardProps {
@@ -29,6 +30,9 @@ export function AdminDashboard({ user, onLogout }: AdminDashboardProps) {
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [categoryFilter, setCategoryFilter] = useState<string>('all')
   const [districtFilter, setDistrictFilter] = useState<string>('all')
+  const [activeView, setActiveView] = useState<string>('all')
+  const [selectedRequest, setSelectedRequest] = useState<ServiceRequest | null>(null)
+  const [dialogOpen, setDialogOpen] = useState(false)
 
   const userRequests = useMemo(() => {
     let filtered = requests || []
@@ -37,6 +41,12 @@ export function AdminDashboard({ user, onLogout }: AdminDashboardProps) {
       filtered = filtered.filter(r => r.districtId === user.districtId)
     } else if (user.role === 'municipal_admin') {
       filtered = filtered.filter(r => r.municipalityId === user.municipalityId)
+    } else if (user.role === 'staff') {
+      if (activeView === 'my_tasks') {
+        filtered = filtered.filter(r => r.assignedToUserId === user.id)
+      } else {
+        filtered = filtered.filter(r => r.districtId === user.districtId)
+      }
     }
     
     if (statusFilter !== 'all') {
@@ -54,7 +64,7 @@ export function AdminDashboard({ user, onLogout }: AdminDashboardProps) {
     return filtered.sort((a, b) => 
       new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
     )
-  }, [requests, statusFilter, categoryFilter, districtFilter, user])
+  }, [requests, statusFilter, categoryFilter, districtFilter, activeView, user])
 
   const stats = useMemo(() => {
     const all = userRequests
@@ -74,6 +84,11 @@ export function AdminDashboard({ user, onLogout }: AdminDashboardProps) {
     }
     return []
   }, [districts, user])
+
+  const handleRequestClick = (request: ServiceRequest) => {
+    setSelectedRequest(request)
+    setDialogOpen(true)
+  }
 
   return (
     <div className="min-h-screen bg-background">
@@ -143,6 +158,20 @@ export function AdminDashboard({ user, onLogout }: AdminDashboardProps) {
             </CardDescription>
           </CardHeader>
           <CardContent>
+            {user.role === 'staff' && (
+              <div className="mb-6">
+                <Tabs value={activeView} onValueChange={setActiveView}>
+                  <TabsList className="grid w-full max-w-md grid-cols-2">
+                    <TabsTrigger value="all">جميع الطلبات</TabsTrigger>
+                    <TabsTrigger value="my_tasks">
+                      <ClipboardText className="ml-2" />
+                      طلباتي
+                    </TabsTrigger>
+                  </TabsList>
+                </Tabs>
+              </div>
+            )}
+
             <div className="flex flex-col md:flex-row gap-4 mb-6">
               <Select value={statusFilter} onValueChange={setStatusFilter}>
                 <SelectTrigger className="md:w-48">
@@ -193,19 +222,24 @@ export function AdminDashboard({ user, onLogout }: AdminDashboardProps) {
                     <TableHead>الفئة</TableHead>
                     <TableHead>الحالة</TableHead>
                     <TableHead>الوصف</TableHead>
+                    {user.role !== 'staff' && <TableHead>المكلف</TableHead>}
                     <TableHead>التاريخ</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {userRequests.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={5} className="text-center text-muted-foreground py-8">
+                      <TableCell colSpan={user.role !== 'staff' ? 6 : 5} className="text-center text-muted-foreground py-8">
                         لا توجد طلبات
                       </TableCell>
                     </TableRow>
                   ) : (
                     userRequests.map(request => (
-                      <TableRow key={request.id}>
+                      <TableRow 
+                        key={request.id}
+                        className="cursor-pointer hover:bg-muted/50"
+                        onClick={() => handleRequestClick(request)}
+                      >
                         <TableCell className="font-mono font-semibold">
                           {request.trackingCode}
                           {isOverdue(request) && (
@@ -221,6 +255,11 @@ export function AdminDashboard({ user, onLogout }: AdminDashboardProps) {
                         <TableCell className="max-w-xs truncate">
                           {request.description}
                         </TableCell>
+                        {user.role !== 'staff' && (
+                          <TableCell className="text-sm">
+                            {request.assignedToName || <span className="text-muted-foreground">غير مخصص</span>}
+                          </TableCell>
+                        )}
                         <TableCell className="text-sm text-muted-foreground">
                           {formatRelativeTime(request.createdAt)}
                         </TableCell>
@@ -233,6 +272,13 @@ export function AdminDashboard({ user, onLogout }: AdminDashboardProps) {
           </CardContent>
         </Card>
       </main>
+
+      <RequestDetailsDialog
+        request={selectedRequest}
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+        currentUser={user}
+      />
     </div>
   )
 }

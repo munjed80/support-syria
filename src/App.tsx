@@ -7,6 +7,7 @@ import { SubmitRequestForm } from '@/components/SubmitRequestForm'
 import { TrackRequest } from '@/components/TrackRequest'
 import { LoginForm } from '@/components/LoginForm'
 import { AdminDashboard } from '@/components/AdminDashboard'
+import { DataInitializer } from '@/components/DataInitializer'
 import { Buildings } from '@phosphor-icons/react'
 
 function AppContent() {
@@ -93,6 +94,7 @@ function AppContent() {
 function App() {
   return (
     <AuthProvider>
+      <DataInitializer />
       <AppContent />
     </AuthProvider>
   )
