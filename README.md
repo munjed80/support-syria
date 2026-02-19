@@ -10,6 +10,129 @@ This system enables:
 - **Municipal Administrators** to oversee performance across all districts
 - **Staff/Field Workers** to receive and complete assigned work orders
 
+---
+
+## Backend Setup (FastAPI + PostgreSQL)
+
+### Prerequisites
+- Docker & Docker Compose
+
+### Quick Start
+
+```bash
+# 1. Copy environment file
+cp .env.example .env
+# Edit .env and change SECRET_KEY to a strong random value
+
+# 2. Start services (PostgreSQL + FastAPI backend)
+docker compose up --build
+
+# The backend will automatically:
+#   - Run Alembic migrations
+#   - Seed the database with default data
+#   - Start on http://localhost:8000
+```
+
+### Default Seed Credentials
+
+| Role | Email | Password |
+|------|-------|----------|
+| Municipal Admin | `admin@mun.sa` | `admin123` |
+| District Admin (حي العليا) | `district1@mun.sa` | `pass123` |
+| District Admin (حي الملز) | `district2@mun.sa` | `pass123` |
+| Staff (حي العليا) | `staff1@mun.sa` | `staff123` |
+| Staff (حي الملز) | `staff2@mun.sa` | `staff123` |
+
+### API Documentation
+
+Once running, interactive API docs are available at:
+- Swagger UI: http://localhost:8000/docs
+- ReDoc: http://localhost:8000/redoc
+
+### Manual Setup (without Docker)
+
+```bash
+cd backend
+python -m venv venv
+source venv/bin/activate  # Windows: venv\Scripts\activate
+pip install -r requirements.txt
+
+# Set environment variables
+export DATABASE_URL=postgresql://postgres:postgres@localhost:5432/municipal_requests
+export SECRET_KEY=your-secret-key
+
+# Run migrations
+alembic upgrade head
+
+# Seed database
+python seed.py
+
+# Start server
+uvicorn app.main:app --reload --port 8000
+```
+
+---
+
+## API Endpoints
+
+### Auth
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/auth/login` | Login with email/password, returns JWT |
+| `GET` | `/auth/me` | Get current user info |
+
+### Public (No Auth Required)
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/public/requests` | Submit a new service request |
+| `GET` | `/public/requests/{tracking_code}` | Track request by code |
+| `POST` | `/public/requests/{tracking_code}/update` | Add citizen update (rate-limited: 3/hour) |
+
+### Admin (JWT Required)
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/admin/requests` | List requests (scoped by role) |
+| `GET` | `/admin/requests/{id}` | Get request details |
+| `POST` | `/admin/requests/{id}/assign` | Assign staff to request |
+| `POST` | `/admin/requests/{id}/status` | Update request status |
+| `POST` | `/admin/requests/{id}/priority` | Update request priority |
+| `POST` | `/admin/requests/{id}/note` | Add internal note |
+| `POST` | `/admin/requests/{id}/attachments` | Upload attachment |
+
+---
+
+## Frontend API Client
+
+A lightweight API client is available at `src/lib/api.ts`:
+
+```typescript
+import { api } from '@/lib/api'
+
+// Configure the backend URL via VITE_API_URL env variable (default: http://localhost:8000)
+
+// Login
+const { access_token } = await api.login('admin@mun.sa', 'admin123')
+api.setToken(access_token)  // stores in localStorage automatically
+
+// Public – submit a request
+const req = await api.submitRequest({
+  district_id: '...',
+  category: 'lighting',
+  description: 'عمود إنارة مكسور',
+})
+
+// Public – track a request
+const tracked = await api.trackRequest('ABCD1234')
+
+// Admin – list requests
+const { items } = await api.getRequests({ status: 'submitted', page: 1 })
+
+// Admin – update status
+await api.updateStatus(req.id, { status: 'received' })
+```
+
+---
+
 ## Features
 
 ### Citizen Portal (Public Access)
@@ -20,180 +143,102 @@ This system enables:
 - ✅ Optional location (address text)
 - ✅ Receive unique tracking code
 - ✅ Track request status with public timeline
-- ✅ Real-time status updates
+- ✅ Rate-limited to 3 submissions per IP per hour
 
 ### District Admin Dashboard
 - ✅ View all requests for assigned district
-- ✅ Filter by status, category, priority, date
+- ✅ Filter by status, category, priority
 - ✅ Role-based access control (district-scoped)
-- ✅ View request details and timeline
+- ✅ Assign staff, change status, add internal notes
 - ✅ Track overdue requests with SLA alerts
 
 ### Municipal Admin Dashboard
 - ✅ Municipality-wide KPI overview
 - ✅ View all districts' requests
-- ✅ Performance metrics by district
 - ✅ Filter and search capabilities
 - ✅ Overdue request tracking
 
 ### System Features
 - ✅ Full Arabic UI with RTL layout
-- ✅ Role-based authentication
-- ✅ Status workflow management
-- ✅ SLA tracking (automatic overdue flagging)
+- ✅ JWT authentication
+- ✅ RBAC: Municipal Admin / District Admin / Staff
+- ✅ Status workflow enforcement (invalid transitions blocked)
+- ✅ Reject requires reason; Complete requires after-photo
+- ✅ SLA tracking server-side (met / at_risk / breached)
+- ✅ Automatic priority escalation rules
 - ✅ Audit trail for all actions
+- ✅ File upload (local storage, max 5 MB)
 - ✅ Mobile-responsive design
-- ✅ Modern Arabic typography (Cairo & Tajawal fonts)
+
+---
 
 ## Technology Stack
 
-- **Frontend**: React 19 + TypeScript
-- **Styling**: Tailwind CSS with custom Arabic theme
-- **UI Components**: shadcn/ui v4
-- **Icons**: Phosphor Icons
-- **State Management**: Spark useKV hooks (persistent storage)
-- **Build Tool**: Vite
+### Frontend
+- **React 19** + TypeScript
+- **Tailwind CSS** with custom Arabic theme
+- **shadcn/ui** components
+- **Phosphor Icons**
+- **Vite** build tool
 
-## Setup Instructions
+### Backend
+- **FastAPI** (Python 3.12)
+- **PostgreSQL 16** + **SQLAlchemy 2** ORM
+- **Alembic** migrations
+- **JWT** authentication (python-jose)
+- **bcrypt** password hashing (passlib)
+- **slowapi** rate limiting
+- **Docker Compose** for local development
 
-The system is pre-configured and ready to run. All seed data has been initialized.
-
-### Access Credentials
-
-**Municipal Admin (Full Access)**
-- Email: `admin@mun.sa`
-- Password: `admin123`
-- Access: All districts in municipality
-
-**District Admin (حي العليا)**
-- Email: `district1@mun.sa`
-- Password: `pass123`
-- Access: حي العليا only
-
-**District Admin (حي الملز)**
-- Email: `district2@mun.sa`
-- Password: `pass123`
-- Access: حي الملز only
+---
 
 ## Data Model
 
 ### Entities
 
-**Municipalities** (بلديات)
-- بلدية الرياض (Riyadh Municipality)
+**Municipalities** → **Districts** → **Users** (staff, admins)
 
-**Districts** (أحياء)
-- حي العليا (Al-Olaya District)
-- حي الملز (Al-Malaz District)
-- حي النخيل (An-Nakheel District)
-- حي الصحافة (As-Sahafa District)
+**Service Requests** have:
+- Category: lighting | water | waste | roads | other
+- Priority: low | normal | high | urgent
+- Status: submitted → received → in_progress → completed | rejected
+- SLA deadline (calculated server-side from category + priority)
+- Tracking code (8-char, alphanumeric, public)
 
-**Request Categories**
-- إنارة (Lighting) - SLA: 3 days
-- مياه (Water) - SLA: 1 day
-- نفايات (Waste) - SLA: 2 days
-- طرق (Roads) - SLA: 7 days
-- أخرى (Other) - SLA: 5 days
+**Request Updates** – timeline entries (public or internal)
 
-**Request Statuses**
-- مُرسلة (Submitted)
-- مستلمة (Received)
-- قيد المعالجة (In Progress)
-- منجزة (Completed)
-- مرفوضة (Rejected)
+**Assignments** – staff assignment records
 
-## Sample Requests
+**Attachments** – uploaded files linked to a request
 
-The system includes 5 pre-seeded requests demonstrating different statuses:
+**Audit Log** – immutable log of all admin actions
 
-1. **LT8H3K9P** - Lighting issue in Al-Olaya (In Progress)
-2. **WS2M7N4Q** - Waste collection delay in Al-Malaz (Submitted)
-3. **RD5P8T2X** - Road pothole in Al-Olaya (Received, Urgent)
-4. **WT9K6H3M** - Water leak in An-Nakheel (Completed)
-5. **OT4L9X7R** - Park bench request in As-Sahafa (Rejected)
+---
 
-## User Workflow
+## SLA Logic
 
-### Citizen Journey
-1. Visit homepage
-2. Click "تقديم طلب" (Submit Request)
-3. Fill form: category, district, description, optional photo/address
-4. Click "إرسال الطلب" (Submit Request)
-5. Receive tracking code (e.g., LT8H3K9P)
-6. Use "تتبع طلب" (Track Request) tab to monitor status
+SLA deadlines are calculated server-side at request creation:
 
-### Admin Journey
-1. Click "تسجيل الدخول الإداري" (Admin Login)
-2. Enter credentials
-3. View dashboard with KPIs
-4. Filter requests by status/category/district
-5. Click request to view details
-6. Track overdue requests (flagged in red)
+| Category | Low | Normal | High | Urgent |
+|----------|-----|--------|------|--------|
+| Water    | 2d  | 1d     | 12h  | 6h     |
+| Waste    | 3d  | 2d     | 1d   | 12h    |
+| Lighting | 5d  | 3d     | 2d   | 1d     |
+| Roads    | 10d | 7d     | 5d   | 2d     |
+| Other    | 7d  | 5d     | 3d   | 1d     |
 
-## SLA & Overdue Logic
+SLA status: `met` | `at_risk` (< 25% remaining) | `breached`
 
-Each category has a defined Service Level Agreement (SLA):
-- Requests exceeding their SLA days are automatically flagged as "متأخر" (Overdue)
-- Overdue count displayed prominently in admin dashboard
-- Color-coded status badges for visual priority
+---
 
-## Security Features
+## Security
 
-- ✅ Role-based access control (RBAC)
-- ✅ District-scoped data access
-- ✅ Password-protected admin access
-- ✅ No direct data deletion (status transitions only)
-- ✅ Audit logging for all actions
-- ✅ Anonymous citizen submissions
-
-## Responsive Design
-
-- Mobile-first approach
-- Touch-optimized controls
-- Responsive tables convert to cards on mobile
-- Bottom-fixed CTAs on mobile forms
-- Collapsible filters for small screens
-
-## Arabic Typography
-
-**Font Families:**
-- **Cairo** (Google Fonts) - Headers, buttons, titles
-  - Bold for H1, SemiBold for H2, Medium for H3
-- **Tajawal** (Google Fonts) - Body text, descriptions
-  - Provides warmth and readability for long-form content
-
-## Color Palette
-
-**Primary**: Deep governmental blue `oklch(0.35 0.08 250)`
-**Accent**: Amber alert `oklch(0.70 0.15 65)`
-**Status Colors**:
-- Submitted: Gray `oklch(0.60 0.01 240)`
-- Received: Blue `oklch(0.55 0.10 250)`
-- In Progress: Amber `oklch(0.65 0.13 65)`
-- Completed: Green `oklch(0.60 0.15 145)`
-- Rejected: Red `oklch(0.55 0.18 25)`
-
-## Architecture Notes
-
-This is a **frontend-only implementation** using:
-- Spark's `useKV` hooks for persistent storage (simulates database)
-- Local state management (no external backend)
-- All business logic in React components
-
-For production deployment with a real backend:
-1. Replace `useKV` calls with API endpoints
-2. Implement proper authentication (JWT/OAuth)
-3. Add PostgreSQL database
-4. Implement file upload to cloud storage
-5. Add email/SMS notifications
-6. Implement proper audit logging
-
-## Browser Support
-
-- Chrome/Edge (latest)
-- Firefox (latest)
-- Safari (latest)
-- Mobile browsers (iOS Safari, Chrome Android)
+- Passwords hashed with bcrypt
+- JWT tokens expire after 8 hours (configurable)
+- Role + scope enforced on every admin endpoint
+- Rate limiting on public submission endpoint
+- File size validation (5 MB max)
+- No PII leaked in public tracking endpoint (internal notes hidden)
 
 ## License
 
