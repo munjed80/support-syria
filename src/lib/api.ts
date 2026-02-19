@@ -17,6 +17,8 @@
  *   await api.updateStatus(id, { status: 'received' })
  */
 
+import type { ServiceRequest, RequestUpdate, District, User, UserRole } from '@/lib/types'
+
 const BASE_URL = (import.meta as any).env?.VITE_API_URL ?? 'http://localhost:8000'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -32,6 +34,12 @@ export interface UserOut {
   role: string
   municipality_id: string
   district_id?: string
+  name: string
+}
+
+export interface DistrictOut {
+  id: string
+  municipality_id: string
   name: string
 }
 
@@ -108,8 +116,76 @@ export interface RequestsFilter {
   category?: string
   priority?: string
   district_id?: string
+  assigned_to_me?: boolean
   page?: number
   page_size?: number
+}
+
+// ─── Mappers (snake_case API → camelCase frontend types) ─────────────────────
+
+export function toServiceRequest(r: ServiceRequestOut): ServiceRequest {
+  return {
+    id: String(r.id),
+    municipalityId: String(r.municipality_id),
+    districtId: String(r.district_id),
+    category: r.category as any,
+    priority: r.priority as any,
+    status: r.status as any,
+    description: r.description,
+    trackingCode: r.tracking_code,
+    locationLat: r.location_lat ?? undefined,
+    locationLng: r.location_lng ?? undefined,
+    addressText: r.address_text ?? undefined,
+    assignedToUserId: r.assigned_to_user_id ? String(r.assigned_to_user_id) : undefined,
+    assignedToName: r.assigned_to_name ?? undefined,
+    rejectionReason: r.rejection_reason ?? undefined,
+    completionPhotoUrl: r.completion_photo_url ?? undefined,
+    priorityEscalatedAt: r.priority_escalated_at ?? undefined,
+    isAutoEscalated: r.is_auto_escalated,
+    slaDeadline: r.sla_deadline ?? undefined,
+    slaStatus: r.sla_status as any,
+    slaBreachedAt: r.sla_breached_at ?? undefined,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+    closedAt: r.closed_at ?? undefined,
+  }
+}
+
+export function toRequestUpdate(u: RequestUpdateOut): RequestUpdate {
+  return {
+    id: String(u.id),
+    requestId: String(u.request_id),
+    actorUserId: u.actor_user_id ? String(u.actor_user_id) : undefined,
+    actorName: u.actor_name ?? undefined,
+    message: u.message ?? undefined,
+    fromStatus: u.from_status as any,
+    toStatus: u.to_status as any,
+    fromPriority: u.from_priority as any,
+    toPriority: u.to_priority as any,
+    isAutoEscalation: u.is_auto_escalation,
+    isInternal: u.is_internal,
+    createdAt: u.created_at,
+  }
+}
+
+export function toDistrict(d: DistrictOut): District {
+  return {
+    id: String(d.id),
+    municipalityId: String(d.municipality_id),
+    name: d.name,
+  }
+}
+
+export function toUser(u: UserOut): User {
+  return {
+    id: String(u.id),
+    email: u.email,
+    passwordHash: '', // password is never exposed by the API; field kept for type compatibility
+    role: u.role as UserRole,
+    municipalityId: String(u.municipality_id),
+    districtId: u.district_id ? String(u.district_id) : undefined,
+    name: u.name,
+  }
 }
 
 // ─── Client ───────────────────────────────────────────────────────────────────
@@ -166,6 +242,10 @@ class ApiClient {
 
   // ── Public ────────────────────────────────────────────────────────────────
 
+  async getDistricts(): Promise<DistrictOut[]> {
+    return this.request<DistrictOut[]>('/public/districts')
+  }
+
   async submitRequest(payload: PublicSubmitRequest): Promise<ServiceRequestOut> {
     return this.request<ServiceRequestOut>('/public/requests', {
       method: 'POST',
@@ -202,6 +282,11 @@ class ApiClient {
 
   async getRequest(id: string): Promise<ServiceRequestDetail> {
     return this.request<ServiceRequestDetail>(`/admin/requests/${id}`)
+  }
+
+  async getStaff(districtId?: string): Promise<UserOut[]> {
+    const qs = districtId ? `?district_id=${encodeURIComponent(districtId)}` : ''
+    return this.request<UserOut[]>(`/admin/staff${qs}`)
   }
 
   async assignStaff(requestId: string, staffUserId: string): Promise<ServiceRequestOut> {

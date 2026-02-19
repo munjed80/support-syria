@@ -15,6 +15,7 @@ from app.config import get_settings
 from app.database import get_db
 from app.models import District, RequestUpdate, ServiceRequest
 from app.schemas import (
+    DistrictOut,
     PublicCitizenUpdate,
     PublicSubmitRequest,
     ServiceRequestDetail,
@@ -27,6 +28,12 @@ router = APIRouter(prefix="/public", tags=["public"])
 limiter = Limiter(key_func=get_remote_address)
 
 TRACKING_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+
+
+@router.get("/districts", response_model=list[DistrictOut])
+def list_districts(db: Session = Depends(get_db)):
+    """Return all districts (used by the public submission form)."""
+    return db.query(District).order_by(District.name).all()
 
 
 def _generate_tracking_code(length: int = 8) -> str:

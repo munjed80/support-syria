@@ -1,5 +1,5 @@
-import { createContext, useContext, ReactNode } from 'react'
-import { useKV } from '@github/spark/hooks'
+import { createContext, useContext, ReactNode, useState, useEffect } from 'react'
+import { api, toUser } from '@/lib/api'
 import type { User } from '@/lib/types'
 
 interface AuthContextType {
@@ -12,29 +12,41 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | null>(null)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [currentUser, setCurrentUser] = useKV<User | null>('current_user', null)
-  const [users] = useKV<User[]>('users', [])
+  const [currentUser, setCurrentUser] = useState<User | null>(null)
+
+  // On mount, restore session from stored token
+  useEffect(() => {
+    const token = localStorage.getItem('api_token')
+    if (token) {
+      api.me()
+        .then((u) => setCurrentUser(toUser(u)))
+        .catch(() => api.setToken(null))
+    }
+  }, [])
 
   const login = async (email: string, password: string): Promise<boolean> => {
-    const usersList = users || []
-    const user = usersList.find(u => u.email === email && u.passwordHash === password)
-    if (user) {
-      setCurrentUser((prev) => user)
+    try {
+      const { access_token } = await api.login(email, password)
+      api.setToken(access_token)
+      const me = await api.me()
+      setCurrentUser(toUser(me))
       return true
+    } catch {
+      return false
     }
-    return false
   }
 
   const logout = () => {
-    setCurrentUser((prev) => null)
+    api.setToken(null)
+    setCurrentUser(null)
   }
 
   return (
-    <AuthContext.Provider value={{ 
-      currentUser: currentUser || null, 
-      login, 
-      logout, 
-      isAuthenticated: currentUser !== null 
+    <AuthContext.Provider value={{
+      currentUser,
+      login,
+      logout,
+      isAuthenticated: currentUser !== null
     }}>
       {children}
     </AuthContext.Provider>

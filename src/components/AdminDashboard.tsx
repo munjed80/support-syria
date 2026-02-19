@@ -1,10 +1,10 @@
-import { useState, useMemo } from 'react'
-import { useKV } from '@github/spark/hooks'
+import { useState, useMemo, useEffect, useCallback } from 'react'
+import { api, toServiceRequest, toDistrict } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import {
   Table,
@@ -25,8 +25,8 @@ interface AdminDashboardProps {
 }
 
 export function AdminDashboard({ user, onLogout }: AdminDashboardProps) {
-  const [requests] = useKV<ServiceRequest[]>('service_requests', [])
-  const [districts] = useKV<District[]>('districts', [])
+  const [requests, setRequests] = useState<ServiceRequest[]>([])
+  const [districts, setDistricts] = useState<District[]>([])
   
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [categoryFilter, setCategoryFilter] = useState<string>('all')
@@ -36,47 +36,43 @@ export function AdminDashboard({ user, onLogout }: AdminDashboardProps) {
   const [selectedRequest, setSelectedRequest] = useState<ServiceRequest | null>(null)
   const [dialogOpen, setDialogOpen] = useState(false)
 
-  const userRequests = useMemo(() => {
-    let filtered = requests || []
-    
-    if (user.role === 'district_admin' && user.districtId) {
-      filtered = filtered.filter(r => r.districtId === user.districtId)
-    } else if (user.role === 'municipal_admin') {
-      filtered = filtered.filter(r => r.municipalityId === user.municipalityId)
-    } else if (user.role === 'staff') {
-      if (activeView === 'my_tasks') {
-        filtered = filtered.filter(r => r.assignedToUserId === user.id)
-      } else {
-        filtered = filtered.filter(r => r.districtId === user.districtId)
-      }
-    }
-    
-    if (statusFilter !== 'all') {
-      filtered = filtered.filter(r => r.status === statusFilter)
-    }
-    
-    if (categoryFilter !== 'all') {
-      filtered = filtered.filter(r => r.category === categoryFilter)
-    }
-    
-    if (districtFilter !== 'all') {
-      filtered = filtered.filter(r => r.districtId === districtFilter)
-    }
+  // Load districts once
+  useEffect(() => {
+    api.getDistricts()
+      .then((list) => setDistricts(list.map(toDistrict)))
+      .catch(() => {})
+  }, [])
 
-    if (priorityFilter !== 'all') {
-      if (priorityFilter === 'urgent') {
-        filtered = filtered.filter(r => r.priority === 'urgent')
-      } else {
-        filtered = filtered.filter(r => r.priority === priorityFilter)
-      }
+  const fetchRequests = useCallback(() => {
+    const filters: Record<string, any> = {}
+    if (statusFilter !== 'all') filters.status = statusFilter
+    if (categoryFilter !== 'all') filters.category = categoryFilter
+    if (priorityFilter !== 'all') filters.priority = priorityFilter
+    if (districtFilter !== 'all' && user.role === 'municipal_admin') {
+      filters.district_id = districtFilter
     }
-    
-    return filtered.sort((a, b) => {
+    // For staff: server always restricts to assigned; pass assigned_to_me for my_tasks tab
+    if (user.role === 'staff' && activeView === 'my_tasks') {
+      filters.assigned_to_me = true
+    }
+    filters.page_size = 100
+
+    api.getRequests(filters)
+      .then((result) => setRequests(result.items.map(toServiceRequest)))
+      .catch(() => {})
+  }, [statusFilter, categoryFilter, priorityFilter, districtFilter, activeView, user.role])
+
+  useEffect(() => {
+    fetchRequests()
+  }, [fetchRequests])
+
+  const userRequests = useMemo(() => {
+    return [...requests].sort((a, b) => {
       const priorityDiff = PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority]
       if (priorityDiff !== 0) return priorityDiff
       return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
     })
-  }, [requests, statusFilter, categoryFilter, districtFilter, priorityFilter, activeView, user])
+  }, [requests])
 
   const stats = useMemo(() => {
     const all = userRequests
@@ -91,9 +87,9 @@ export function AdminDashboard({ user, onLogout }: AdminDashboardProps) {
 
   const userDistricts = useMemo(() => {
     if (user.role === 'municipal_admin') {
-      return (districts || []).filter(d => d.municipalityId === user.municipalityId)
+      return districts.filter(d => d.municipalityId === user.municipalityId)
     } else if (user.role === 'district_admin' && user.districtId) {
-      return (districts || []).filter(d => d.id === user.districtId)
+      return districts.filter(d => d.id === user.districtId)
     }
     return []
   }, [districts, user])
@@ -337,6 +333,8 @@ export function AdminDashboard({ user, onLogout }: AdminDashboardProps) {
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         currentUser={user}
+        districts={districts}
+        onUpdate={fetchRequests}
       />
     </div>
   )
