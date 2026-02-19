@@ -14,6 +14,9 @@ class Settings(BaseSettings):
     # Rate limiting (public endpoints)
     rate_limit_per_hour: int = 3
 
+    # CORS allowed origins (comma-separated in env var or a list in code)
+    cors_origins: list[str] = ["http://localhost:5173"]
+
     class Config:
         env_file = ".env"
 

@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { useKV } from '@github/spark/hooks'
+import { useState, useEffect } from 'react'
+import { api, toRequestUpdate, toServiceRequest } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { toast } from 'sonner'
-import { MapPin, Clock, User as UserIcon, CheckCircle, XCircle, CircleNotch, Image as ImageIcon, Warning } from '@phosphor-icons/react'
+import { MapPin, Clock, User as UserIcon, CheckCircle, XCircle, CircleNotch, Warning } from '@phosphor-icons/react'
 import {
   CATEGORIES,
   STATUSES,
@@ -20,7 +20,6 @@ import {
   formatRelativeTime,
   getValidNextStatuses,
   canTransitionTo,
-  generateId
 } from '@/lib/constants'
 import type { ServiceRequest, RequestUpdate, User, District, RequestStatus, Priority } from '@/lib/types'
 
@@ -29,13 +28,14 @@ interface RequestDetailsDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   currentUser: User
+  districts?: District[]
+  onUpdate?: () => void
 }
 
-export function RequestDetailsDialog({ request, open, onOpenChange, currentUser }: RequestDetailsDialogProps) {
-  const [requests, setRequests] = useKV<ServiceRequest[]>('service_requests', [])
-  const [updates, setUpdates] = useKV<RequestUpdate[]>('request_updates', [])
-  const [districts] = useKV<District[]>('districts', [])
-  const [users] = useKV<User[]>('users', [])
+export function RequestDetailsDialog({ request, open, onOpenChange, currentUser, districts, onUpdate }: RequestDetailsDialogProps) {
+  const [requestUpdates, setRequestUpdates] = useState<RequestUpdate[]>([])
+  const [staffMembers, setStaffMembers] = useState<{ id: string; name: string }[]>([])
+  const [liveRequest, setLiveRequest] = useState<ServiceRequest | null>(null)
 
   const [newStatus, setNewStatus] = useState<string>('')
   const [newPriority, setNewPriority] = useState<string>('')
@@ -45,19 +45,46 @@ export function RequestDetailsDialog({ request, open, onOpenChange, currentUser 
   const [assignedUserId, setAssignedUserId] = useState<string>('')
   const [saving, setSaving] = useState(false)
 
+  // Fetch full request details and staff list when dialog opens
+  useEffect(() => {
+    if (open && request) {
+      api.getRequest(request.id)
+        .then((detail) => {
+          setLiveRequest(toServiceRequest(detail))
+          setRequestUpdates(
+            detail.updates
+              .map(toRequestUpdate)
+              .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+          )
+        })
+        .catch(() => {})
+
+      if (currentUser.role === 'district_admin' || currentUser.role === 'municipal_admin') {
+        api.getStaff(request.districtId)
+          .then((list) => setStaffMembers(list.map(u => ({ id: String(u.id), name: u.name }))))
+          .catch(() => {})
+      }
+    }
+    if (!open) {
+      // Reset form state when dialog closes
+      setNewStatus('')
+      setNewPriority('')
+      setInternalNote('')
+      setRejectionReason('')
+      setCompletionPhoto('')
+      setAssignedUserId('')
+      setLiveRequest(null)
+      setRequestUpdates([])
+    }
+  }, [open, request, currentUser.role])
+
   if (!request) return null
 
-  const district = (districts || []).find(d => d.id === request.districtId)
-  const requestUpdates = (updates || [])
-    .filter(u => u.requestId === request.id)
-    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+  // Use live request data if available, fall back to prop
+  const displayRequest = liveRequest ?? request
 
-  const validNextStatuses = getValidNextStatuses(request.status)
-  
-  const staffMembers = (users || []).filter(u => 
-    u.role === 'staff' && 
-    u.districtId === request.districtId
-  )
+  const district = (districts || []).find(d => d.id === displayRequest.districtId)
+  const validNextStatuses = getValidNextStatuses(displayRequest.status)
 
   const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -82,43 +109,13 @@ export function RequestDetailsDialog({ request, open, onOpenChange, currentUser 
 
     setSaving(true)
     try {
-      const staff = staffMembers.find(u => u.id === assignedUserId)
-      if (!staff) {
-        toast.error('الموظف غير موجود')
-        return
-      }
-
-      const now = new Date().toISOString()
-      
-      setRequests((current) =>
-        (current || []).map(r =>
-          r.id === request.id
-            ? {
-                ...r,
-                assignedToUserId: staff.id,
-                assignedToName: staff.name,
-                updatedAt: now
-              }
-            : r
-        )
-      )
-
-      const assignmentUpdate: RequestUpdate = {
-        id: generateId(),
-        requestId: request.id,
-        actorUserId: currentUser.id,
-        actorName: currentUser.name,
-        message: `تم تعيين الطلب إلى ${staff.name}`,
-        isInternal: true,
-        createdAt: now
-      }
-
-      setUpdates((current) => [...(current || []), assignmentUpdate])
-
+      const updated = await api.assignStaff(displayRequest.id, assignedUserId)
+      setLiveRequest(toServiceRequest(updated))
       toast.success('تم تعيين الموظف بنجاح')
       setAssignedUserId('')
-    } catch (error) {
-      toast.error('حدث خطأ أثناء التعيين')
+      onUpdate?.()
+    } catch (error: any) {
+      toast.error(error?.message || 'حدث خطأ أثناء التعيين')
     } finally {
       setSaving(false)
     }
@@ -130,7 +127,7 @@ export function RequestDetailsDialog({ request, open, onOpenChange, currentUser 
       return
     }
 
-    if (!canTransitionTo(request.status, newStatus as RequestStatus)) {
+    if (!canTransitionTo(displayRequest.status, newStatus as RequestStatus)) {
       toast.error('هذا التحول غير مسموح به')
       return
     }
@@ -147,70 +144,28 @@ export function RequestDetailsDialog({ request, open, onOpenChange, currentUser 
 
     setSaving(true)
     try {
-      const now = new Date().toISOString()
-      
-      setRequests((current) =>
-        (current || []).map(r =>
-          r.id === request.id
-            ? {
-                ...r,
-                status: newStatus as RequestStatus,
-                rejectionReason: newStatus === 'rejected' ? rejectionReason : r.rejectionReason,
-                completionPhotoUrl: newStatus === 'completed' ? completionPhoto : r.completionPhotoUrl,
-                updatedAt: now,
-                closedAt: (newStatus === 'completed' || newStatus === 'rejected') ? now : r.closedAt
-              }
-            : r
-        )
+      const updated = await api.updateStatus(displayRequest.id, {
+        status: newStatus,
+        rejection_reason: newStatus === 'rejected' ? rejectionReason : undefined,
+        completion_photo_url: newStatus === 'completed' ? completionPhoto : undefined,
+        note: internalNote.trim() || undefined,
+      })
+      setLiveRequest(toServiceRequest(updated))
+      // Refresh updates from server
+      const detail = await api.getRequest(displayRequest.id)
+      setRequestUpdates(
+        detail.updates
+          .map(toRequestUpdate)
+          .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
       )
-
-      const statusUpdate: RequestUpdate = {
-        id: generateId(),
-        requestId: request.id,
-        actorUserId: currentUser.id,
-        actorName: currentUser.name,
-        message: internalNote.trim() || undefined,
-        fromStatus: request.status,
-        toStatus: newStatus as RequestStatus,
-        isInternal: false,
-        createdAt: now
-      }
-
-      setUpdates((current) => [...(current || []), statusUpdate])
-
-      if (newStatus === 'rejected' && rejectionReason.trim()) {
-        const rejectionUpdate: RequestUpdate = {
-          id: generateId(),
-          requestId: request.id,
-          actorUserId: currentUser.id,
-          actorName: currentUser.name,
-          message: `سبب الرفض: ${rejectionReason}`,
-          isInternal: false,
-          createdAt: now
-        }
-        setUpdates((current) => [...(current || []), rejectionUpdate])
-      }
-
-      if (internalNote.trim()) {
-        const noteUpdate: RequestUpdate = {
-          id: generateId(),
-          requestId: request.id,
-          actorUserId: currentUser.id,
-          actorName: currentUser.name,
-          message: `ملاحظة داخلية: ${internalNote}`,
-          isInternal: true,
-          createdAt: now
-        }
-        setUpdates((current) => [...(current || []), noteUpdate])
-      }
-
       toast.success('تم تحديث الحالة بنجاح')
       setNewStatus('')
       setInternalNote('')
       setRejectionReason('')
       setCompletionPhoto('')
-    } catch (error) {
-      toast.error('حدث خطأ أثناء التحديث')
+      onUpdate?.()
+    } catch (error: any) {
+      toast.error(error?.message || 'حدث خطأ أثناء التحديث')
     } finally {
       setSaving(false)
     }
@@ -222,47 +177,20 @@ export function RequestDetailsDialog({ request, open, onOpenChange, currentUser 
       return
     }
 
-    if (newPriority === request.priority) {
+    if (newPriority === displayRequest.priority) {
       toast.error('الأولوية لم تتغير')
       return
     }
 
     setSaving(true)
     try {
-      const now = new Date().toISOString()
-      
-      setRequests((current) =>
-        (current || []).map(r =>
-          r.id === request.id
-            ? {
-                ...r,
-                priority: newPriority as Priority,
-                isAutoEscalated: false,
-                priorityEscalatedAt: undefined,
-                updatedAt: now
-              }
-            : r
-        )
-      )
-
-      const priorityUpdate: RequestUpdate = {
-        id: generateId(),
-        requestId: request.id,
-        actorUserId: currentUser.id,
-        actorName: currentUser.name,
-        message: `تم تغيير الأولوية من "${PRIORITIES[request.priority]}" إلى "${PRIORITIES[newPriority as Priority]}" ${request.isAutoEscalated ? '(كانت مرقاة تلقائياً)' : ''}`,
-        fromPriority: request.priority,
-        toPriority: newPriority as Priority,
-        isInternal: true,
-        createdAt: now
-      }
-
-      setUpdates((current) => [...(current || []), priorityUpdate])
-
+      const updated = await api.updatePriority(displayRequest.id, newPriority)
+      setLiveRequest(toServiceRequest(updated))
       toast.success('تم تحديث الأولوية بنجاح')
       setNewPriority('')
-    } catch (error) {
-      toast.error('حدث خطأ أثناء تحديث الأولوية')
+      onUpdate?.()
+    } catch (error: any) {
+      toast.error(error?.message || 'حدث خطأ أثناء تحديث الأولوية')
     } finally {
       setSaving(false)
     }
@@ -286,21 +214,21 @@ export function RequestDetailsDialog({ request, open, onOpenChange, currentUser 
           <div className="flex items-start justify-between gap-4">
             <div className="space-y-1">
               <div className="flex items-center gap-2 flex-wrap">
-                <DialogTitle className="text-xl">{CATEGORIES[request.category]}</DialogTitle>
-                <Badge className={STATUS_COLORS[request.status]}>
-                  {STATUSES[request.status]}
+                <DialogTitle className="text-xl">{CATEGORIES[displayRequest.category]}</DialogTitle>
+                <Badge className={STATUS_COLORS[displayRequest.status]}>
+                  {STATUSES[displayRequest.status]}
                 </Badge>
-                <Badge className={PRIORITY_BADGE_COLORS[request.priority]}>
-                  {PRIORITIES[request.priority]}
+                <Badge className={PRIORITY_BADGE_COLORS[displayRequest.priority]}>
+                  {PRIORITIES[displayRequest.priority]}
                 </Badge>
-                {request.isAutoEscalated && (
+                {displayRequest.isAutoEscalated && (
                   <Badge variant="outline" className="text-xs border-[oklch(0.70_0.15_65)] text-[oklch(0.70_0.15_65)]">
                     ترقية تلقائية
                   </Badge>
                 )}
               </div>
               <DialogDescription>
-                رمز التتبع: <span className="font-mono text-base">{request.trackingCode}</span>
+                رمز التتبع: <span className="font-mono text-base">{displayRequest.trackingCode}</span>
               </DialogDescription>
             </div>
           </div>
@@ -310,7 +238,7 @@ export function RequestDetailsDialog({ request, open, onOpenChange, currentUser 
           <div className="grid grid-cols-2 gap-4">
             <div>
               <h4 className="font-semibold text-sm text-muted-foreground mb-1">تاريخ الإنشاء</h4>
-              <p className="text-sm">{formatDate(request.createdAt)}</p>
+              <p className="text-sm">{formatDate(displayRequest.createdAt)}</p>
             </div>
             {district && (
               <div>
@@ -322,34 +250,34 @@ export function RequestDetailsDialog({ request, open, onOpenChange, currentUser 
 
           <div>
             <h4 className="font-semibold text-sm text-muted-foreground mb-1">الوصف</h4>
-            <p className="text-sm">{request.description}</p>
+            <p className="text-sm">{displayRequest.description}</p>
           </div>
 
-          {request.addressText && (
+          {displayRequest.addressText && (
             <div className="flex items-start gap-2">
               <MapPin className="text-muted-foreground mt-1" size={18} />
               <div>
                 <h4 className="font-semibold text-sm text-muted-foreground">الموقع</h4>
-                <p className="text-sm">{request.addressText}</p>
+                <p className="text-sm">{displayRequest.addressText}</p>
               </div>
             </div>
           )}
 
-          {request.assignedToName && (
+          {displayRequest.assignedToName && (
             <div className="flex items-start gap-2">
               <UserIcon className="text-muted-foreground mt-1" size={18} />
               <div>
                 <h4 className="font-semibold text-sm text-muted-foreground">المكلف</h4>
-                <p className="text-sm">{request.assignedToName}</p>
+                <p className="text-sm">{displayRequest.assignedToName}</p>
               </div>
             </div>
           )}
 
-          {request.completionPhotoUrl && (
+          {displayRequest.completionPhotoUrl && (
             <div>
               <h4 className="font-semibold text-sm text-muted-foreground mb-2">صورة بعد الإنجاز</h4>
               <img 
-                src={request.completionPhotoUrl} 
+                src={displayRequest.completionPhotoUrl} 
                 alt="بعد الإنجاز" 
                 className="w-full max-w-md rounded-lg border"
               />
@@ -367,7 +295,7 @@ export function RequestDetailsDialog({ request, open, onOpenChange, currentUser 
                 <div className="flex gap-2">
                   <Select value={newPriority} onValueChange={setNewPriority}>
                     <SelectTrigger className="flex-1">
-                      <SelectValue placeholder={`الأولوية الحالية: ${PRIORITIES[request.priority]}`} />
+                      <SelectValue placeholder={`الأولوية الحالية: ${PRIORITIES[displayRequest.priority]}`} />
                     </SelectTrigger>
                     <SelectContent>
                       {Object.entries(PRIORITIES).map(([key, label]) => (
@@ -383,7 +311,7 @@ export function RequestDetailsDialog({ request, open, onOpenChange, currentUser 
                 </div>
               </div>
 
-              {!request.assignedToUserId && staffMembers.length > 0 && (
+              {!displayRequest.assignedToUserId && staffMembers.length > 0 && (
                 <div className="space-y-2">
                   <Label>تعيين موظف</Label>
                   <div className="flex gap-2">

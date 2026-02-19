@@ -3,21 +3,15 @@ import { Toaster } from '@/components/ui/sonner'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { AuthProvider, useAuth } from '@/hooks/use-auth'
-import { usePriorityEscalation } from '@/hooks/use-priority-escalation'
-import { useSLATracking } from '@/hooks/use-sla-tracking'
 import { SubmitRequestForm } from '@/components/SubmitRequestForm'
 import { TrackRequest } from '@/components/TrackRequest'
 import { LoginForm } from '@/components/LoginForm'
 import { AdminDashboard } from '@/components/AdminDashboard'
-import { DataInitializer } from '@/components/DataInitializer'
 import { Buildings } from '@phosphor-icons/react'
 
 function AppContent() {
   const { currentUser, login, logout, isAuthenticated } = useAuth()
   const [activeTab, setActiveTab] = useState('submit')
-
-  usePriorityEscalation()
-  useSLATracking()
 
   useEffect(() => {
     const hash = window.location.hash
@@ -99,7 +93,6 @@ function AppContent() {
 function App() {
   return (
     <AuthProvider>
-      <DataInitializer />
       <AppContent />
     </AuthProvider>
   )

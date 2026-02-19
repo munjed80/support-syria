@@ -1,20 +1,18 @@
-import { useState } from 'react'
-import { useKV } from '@github/spark/hooks'
+import { useState, useEffect } from 'react'
+import { api, toDistrict } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Input } from '@/components/ui/input'
-import { PaperPlaneRight, Image as ImageIcon } from '@phosphor-icons/react'
+import { PaperPlaneRight } from '@phosphor-icons/react'
 import { toast } from 'sonner'
-import { generateTrackingCode, generateId, CATEGORIES, getSLADeadline, calculateSLAStatus } from '@/lib/constants'
-import type { ServiceRequest, District, RequestUpdate } from '@/lib/types'
+import { CATEGORIES } from '@/lib/constants'
+import type { District } from '@/lib/types'
 
 export function SubmitRequestForm() {
-  const [requests, setRequests] = useKV<ServiceRequest[]>('service_requests', [])
-  const [updates, setUpdates] = useKV<RequestUpdate[]>('request_updates', [])
-  const [districts] = useKV<District[]>('districts', [])
+  const [districts, setDistricts] = useState<District[]>([])
   
   const [category, setCategory] = useState<string>('')
   const [districtId, setDistrictId] = useState<string>('')
@@ -22,6 +20,12 @@ export function SubmitRequestForm() {
   const [address, setAddress] = useState('')
   const [photo, setPhoto] = useState<string>('')
   const [submitting, setSubmitting] = useState(false)
+
+  useEffect(() => {
+    api.getDistricts()
+      .then((list) => setDistricts(list.map(toDistrict)))
+      .catch(() => {})
+  }, [])
 
   const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -49,52 +53,20 @@ export function SubmitRequestForm() {
     setSubmitting(true)
 
     try {
-      const district = (districts || []).find(d => d.id === districtId)
-      if (!district) {
-        toast.error('الحي غير موجود')
-        return
-      }
-
-      const trackingCode = generateTrackingCode()
-      const requestId = generateId()
-      const now = new Date().toISOString()
-
-      const newRequest: ServiceRequest = {
-        id: requestId,
-        municipalityId: district.municipalityId,
-        districtId,
-        category: category as any,
-        priority: 'normal',
-        status: 'submitted',
+      const result = await api.submitRequest({
+        district_id: districtId,
+        category,
         description,
-        trackingCode,
-        addressText: address || undefined,
-        createdAt: now,
-        updatedAt: now
-      }
-
-      newRequest.slaDeadline = getSLADeadline(newRequest)
-      newRequest.slaStatus = calculateSLAStatus(newRequest)
-
-      const initialUpdate: RequestUpdate = {
-        id: generateId(),
-        requestId,
-        message: 'تم استلام الطلب',
-        toStatus: 'submitted',
-        isInternal: false,
-        createdAt: now
-      }
-
-      setRequests((current) => [...(current || []), newRequest])
-      setUpdates((current) => [...(current || []), initialUpdate])
+        address_text: address || undefined,
+      })
 
       toast.success('تم إرسال الطلب بنجاح')
       
       setTimeout(() => {
-        window.location.hash = `#track-${trackingCode}`
+        window.location.hash = `#track-${result.tracking_code}`
       }, 500)
-    } catch (error) {
-      toast.error('حدث خطأ أثناء إرسال الطلب')
+    } catch (error: any) {
+      toast.error(error?.message || 'حدث خطأ أثناء إرسال الطلب')
     } finally {
       setSubmitting(false)
     }
@@ -129,7 +101,7 @@ export function SubmitRequestForm() {
                 <SelectValue placeholder="اختر الحي" />
               </SelectTrigger>
               <SelectContent>
-                {(districts || []).map((district) => (
+                {districts.map((district) => (
                   <SelectItem key={district.id} value={district.id}>
                     {district.name}
                   </SelectItem>

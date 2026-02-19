@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { useKV } from '@github/spark/hooks'
+import { useState, useEffect, useCallback } from 'react'
+import { api, toServiceRequest, toRequestUpdate, toDistrict } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -14,22 +14,50 @@ interface TrackRequestProps {
 }
 
 export function TrackRequest({ initialCode }: TrackRequestProps) {
-  const [trackingCode, setTrackingCode] = useState(initialCode || '')
-  const [searchCode, setSearchCode] = useState('')
-  const [requests] = useKV<ServiceRequest[]>('service_requests', [])
-  const [updates] = useKV<RequestUpdate[]>('request_updates', [])
-  const [districts] = useKV<District[]>('districts', [])
+  const [searchCode, setSearchCode] = useState(initialCode || '')
+  const [loading, setLoading] = useState(false)
+  const [request, setRequest] = useState<ServiceRequest | null>(null)
+  const [requestUpdates, setRequestUpdates] = useState<RequestUpdate[]>([])
+  const [districts, setDistricts] = useState<District[]>([])
+  const [notFound, setNotFound] = useState(false)
 
-  const handleSearch = () => {
-    setTrackingCode(searchCode.trim().toUpperCase())
-  }
+  useEffect(() => {
+    api.getDistricts()
+      .then((list) => setDistricts(list.map(toDistrict)))
+      .catch(() => {})
+  }, [])
 
-  const request = (requests || []).find(r => r.trackingCode === trackingCode)
-  const requestUpdates = (updates || [])
-    .filter(u => u.requestId === request?.id && !u.isInternal)
-    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-  
-  const district = (districts || []).find(d => d.id === request?.districtId)
+  const handleSearch = useCallback(async (code?: string) => {
+    const trackCode = (code ?? searchCode).trim().toUpperCase()
+    if (!trackCode) return
+
+    setLoading(true)
+    setNotFound(false)
+    try {
+      const detail = await api.trackRequest(trackCode)
+      setRequest(toServiceRequest(detail))
+      setRequestUpdates(
+        detail.updates
+          .map(toRequestUpdate)
+          .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      )
+    } catch {
+      setRequest(null)
+      setRequestUpdates([])
+      setNotFound(true)
+    } finally {
+      setLoading(false)
+    }
+  }, [searchCode])
+
+  // Auto-search when initialCode is provided
+  useEffect(() => {
+    if (initialCode) {
+      handleSearch(initialCode)
+    }
+  }, [initialCode]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const district = districts.find(d => d.id === request?.districtId)
 
   const getStatusIcon = (status: string) => {
     switch (status) {
@@ -58,7 +86,7 @@ export function TrackRequest({ initialCode }: TrackRequestProps) {
               className="flex-1 text-center text-lg tracking-wider font-mono"
               onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
             />
-            <Button onClick={handleSearch} size="lg">
+            <Button onClick={() => handleSearch()} size="lg" disabled={loading}>
               <MagnifyingGlass className="ml-2" />
               بحث
             </Button>
@@ -66,7 +94,7 @@ export function TrackRequest({ initialCode }: TrackRequestProps) {
         </CardContent>
       </Card>
 
-      {trackingCode && !request && (
+      {notFound && (
         <Card className="border-destructive">
           <CardContent className="pt-6">
             <div className="text-center text-destructive">

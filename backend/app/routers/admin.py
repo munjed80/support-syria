@@ -20,6 +20,7 @@ from app.schemas import (
     ServiceRequestDetail,
     ServiceRequestOut,
     StatusUpdateRequest,
+    UserOut,
 )
 from app.sla import calculate_sla_status, can_transition, get_sla_deadline
 
@@ -37,7 +38,8 @@ def _scoped_requests(db: Session, user: User):
     elif user.role == "district_admin":
         q = q.filter(ServiceRequest.district_id == user.district_id)
     elif user.role == "staff":
-        q = q.filter(ServiceRequest.district_id == user.district_id)
+        # Security fix: staff may only see requests explicitly assigned to them
+        q = q.filter(ServiceRequest.assigned_to_user_id == user.id)
     return q
 
 
@@ -58,16 +60,19 @@ def list_requests(
     category: Optional[str] = Query(None),
     priority: Optional[str] = Query(None),
     district_id: Optional[UUID] = Query(None),
+    assigned_to_me: Optional[bool] = Query(None),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     current_user: User = Depends(require_roles(*ALLOWED_ROLES)),
     db: Session = Depends(get_db),
 ):
+    # _scoped_requests already restricts staff to their assigned requests
     q = _scoped_requests(db, current_user)
 
-    if current_user.role == "staff":
-        # staff sees all district requests in "all" view; my_tasks filter done client-side
-        pass
+    # For staff, assigned_to_me is implicitly always true (enforced above).
+    # For other roles, honour the optional param to narrow results further.
+    if assigned_to_me and current_user.role != "staff":
+        q = q.filter(ServiceRequest.assigned_to_user_id == current_user.id)
 
     if status:
         q = q.filter(ServiceRequest.status == status)
@@ -319,3 +324,20 @@ async def upload_attachment(
     db.commit()
     db.refresh(attachment)
     return attachment
+
+
+@router.get("/staff", response_model=list[UserOut])
+def list_staff(
+    district_id: Optional[UUID] = Query(None),
+    current_user: User = Depends(require_roles("district_admin", "municipal_admin")),
+    db: Session = Depends(get_db),
+):
+    """List staff members accessible to the current admin for assignment purposes."""
+    q = db.query(User).filter(User.role == "staff")
+    if district_id:
+        q = q.filter(User.district_id == district_id)
+    elif current_user.role == "district_admin":
+        q = q.filter(User.district_id == current_user.district_id)
+    elif current_user.role == "municipal_admin":
+        q = q.filter(User.municipality_id == current_user.municipality_id)
+    return q.order_by(User.name).all()
