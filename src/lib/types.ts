@@ -45,6 +45,9 @@ export interface ServiceRequest {
   completionPhotoUrl?: string
   priorityEscalatedAt?: string
   isAutoEscalated?: boolean
+  slaDeadline?: string
+  slaStatus?: 'met' | 'at_risk' | 'breached'
+  slaBreachedAt?: string
   createdAt: string
   updatedAt: string
   closedAt?: string

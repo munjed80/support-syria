@@ -59,6 +59,42 @@ export const PRIORITY_ORDER: Record<Priority, number> = {
   low: 3
 }
 
+export const CATEGORY_PRIORITY_SLA: Record<
+  RequestCategory,
+  Record<Priority, number>
+> = {
+  water: {
+    low: 2,
+    normal: 1,
+    high: 0.5,
+    urgent: 0.25
+  },
+  waste: {
+    low: 3,
+    normal: 2,
+    high: 1,
+    urgent: 0.5
+  },
+  lighting: {
+    low: 5,
+    normal: 3,
+    high: 2,
+    urgent: 1
+  },
+  roads: {
+    low: 10,
+    normal: 7,
+    high: 5,
+    urgent: 2
+  },
+  other: {
+    low: 7,
+    normal: 5,
+    high: 3,
+    urgent: 1
+  }
+}
+
 export const CATEGORY_SLA: Record<RequestCategory, number> = {
   lighting: 3,
   water: 1,
@@ -244,4 +280,146 @@ export function getCategoryEscalationInfo(category: RequestCategory): string {
   const highToUrgent = rules.high.hoursToNextLevel
   
   return `${CATEGORIES[category]}: ${lowToNormal}س → ${normalToHigh}س → ${highToUrgent}س`
+}
+
+export function getSLADeadline(request: { 
+  createdAt: string
+  category: RequestCategory
+  priority: Priority
+}): string {
+  const createdDate = new Date(request.createdAt)
+  const slaDays = CATEGORY_PRIORITY_SLA[request.category][request.priority]
+  const deadlineDate = new Date(createdDate.getTime() + slaDays * 24 * 60 * 60 * 1000)
+  return deadlineDate.toISOString()
+}
+
+export function calculateSLAStatus(request: { 
+  createdAt: string
+  category: RequestCategory
+  priority: Priority
+  status: RequestStatus
+  closedAt?: string
+  slaDeadline?: string
+}): 'met' | 'at_risk' | 'breached' {
+  if (request.status === 'completed' || request.status === 'rejected') {
+    if (request.closedAt) {
+      const closedDate = new Date(request.closedAt)
+      const deadline = request.slaDeadline ? new Date(request.slaDeadline) : new Date(getSLADeadline(request))
+      return closedDate <= deadline ? 'met' : 'breached'
+    }
+    return 'met'
+  }
+
+  const deadline = request.slaDeadline ? new Date(request.slaDeadline) : new Date(getSLADeadline(request))
+  const now = new Date()
+  const timeRemaining = deadline.getTime() - now.getTime()
+  const hoursRemaining = timeRemaining / (1000 * 60 * 60)
+
+  if (timeRemaining <= 0) {
+    return 'breached'
+  }
+
+  const slaDays = CATEGORY_PRIORITY_SLA[request.category][request.priority]
+  const atRiskThreshold = slaDays * 24 * 0.25
+
+  if (hoursRemaining <= atRiskThreshold) {
+    return 'at_risk'
+  }
+
+  return 'met'
+}
+
+export function getSLAStatusLabel(status: 'met' | 'at_risk' | 'breached'): string {
+  const labels = {
+    met: 'ضمن الموعد',
+    at_risk: 'معرض للتأخير',
+    breached: 'متأخر'
+  }
+  return labels[status]
+}
+
+export function getSLAStatusColor(status: 'met' | 'at_risk' | 'breached'): string {
+  const colors = {
+    met: 'bg-[oklch(0.60_0.15_145)] text-white',
+    at_risk: 'bg-[oklch(0.70_0.15_65)] text-[oklch(0.25_0.05_60)]',
+    breached: 'bg-destructive text-destructive-foreground'
+  }
+  return colors[status]
+}
+
+export function getTimeUntilDeadline(request: { 
+  slaDeadline?: string
+  createdAt: string
+  category: RequestCategory
+  priority: Priority
+}): string {
+  const deadline = request.slaDeadline ? new Date(request.slaDeadline) : new Date(getSLADeadline(request))
+  const now = new Date()
+  const timeRemaining = deadline.getTime() - now.getTime()
+  
+  if (timeRemaining <= 0) {
+    const hoursOverdue = Math.abs(Math.floor(timeRemaining / (1000 * 60 * 60)))
+    const daysOverdue = Math.floor(hoursOverdue / 24)
+    if (daysOverdue > 0) {
+      return `متأخر ${daysOverdue} يوم`
+    }
+    return `متأخر ${hoursOverdue} ساعة`
+  }
+
+  const hoursRemaining = Math.floor(timeRemaining / (1000 * 60 * 60))
+  const daysRemaining = Math.floor(hoursRemaining / 24)
+  
+  if (daysRemaining > 0) {
+    return `متبقي ${daysRemaining} يوم`
+  }
+  return `متبقي ${hoursRemaining} ساعة`
+}
+
+export function getSLAComplianceRate(requests: Array<{ 
+  status: RequestStatus
+  slaStatus?: 'met' | 'at_risk' | 'breached'
+}>): number {
+  const closedRequests = requests.filter(r => r.status === 'completed' || r.status === 'rejected')
+  if (closedRequests.length === 0) return 100
+  
+  const metSLA = closedRequests.filter(r => r.slaStatus === 'met').length
+  return Math.round((metSLA / closedRequests.length) * 100)
+}
+
+export function getSLAComplianceByCategory(
+  requests: Array<{ 
+    category: RequestCategory
+    status: RequestStatus
+    slaStatus?: 'met' | 'at_risk' | 'breached'
+  }>
+): Record<RequestCategory, { total: number; met: number; breached: number; rate: number }> {
+  const result: Record<RequestCategory, { total: number; met: number; breached: number; rate: number }> = {
+    lighting: { total: 0, met: 0, breached: 0, rate: 0 },
+    water: { total: 0, met: 0, breached: 0, rate: 0 },
+    waste: { total: 0, met: 0, breached: 0, rate: 0 },
+    roads: { total: 0, met: 0, breached: 0, rate: 0 },
+    other: { total: 0, met: 0, breached: 0, rate: 0 }
+  }
+
+  requests
+    .filter(r => r.status === 'completed' || r.status === 'rejected')
+    .forEach(request => {
+      result[request.category].total++
+      if (request.slaStatus === 'met') {
+        result[request.category].met++
+      } else if (request.slaStatus === 'breached') {
+        result[request.category].breached++
+      }
+    })
+
+  Object.keys(result).forEach(category => {
+    const cat = category as RequestCategory
+    if (result[cat].total > 0) {
+      result[cat].rate = Math.round((result[cat].met / result[cat].total) * 100)
+    } else {
+      result[cat].rate = 100
+    }
+  })
+
+  return result
 }

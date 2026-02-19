@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Input } from '@/components/ui/input'
 import { PaperPlaneRight, Image as ImageIcon } from '@phosphor-icons/react'
 import { toast } from 'sonner'
-import { generateTrackingCode, generateId, CATEGORIES } from '@/lib/constants'
+import { generateTrackingCode, generateId, CATEGORIES, getSLADeadline, calculateSLAStatus } from '@/lib/constants'
 import type { ServiceRequest, District, RequestUpdate } from '@/lib/types'
 
 export function SubmitRequestForm() {
@@ -72,6 +72,9 @@ export function SubmitRequestForm() {
         createdAt: now,
         updatedAt: now
       }
+
+      newRequest.slaDeadline = getSLADeadline(newRequest)
+      newRequest.slaStatus = calculateSLAStatus(newRequest)
 
       const initialUpdate: RequestUpdate = {
         id: generateId(),

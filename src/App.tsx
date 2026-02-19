@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { AuthProvider, useAuth } from '@/hooks/use-auth'
 import { usePriorityEscalation } from '@/hooks/use-priority-escalation'
+import { useSLATracking } from '@/hooks/use-sla-tracking'
 import { SubmitRequestForm } from '@/components/SubmitRequestForm'
 import { TrackRequest } from '@/components/TrackRequest'
 import { LoginForm } from '@/components/LoginForm'
@@ -16,6 +17,7 @@ function AppContent() {
   const [activeTab, setActiveTab] = useState('submit')
 
   usePriorityEscalation()
+  useSLATracking()
 
   useEffect(() => {
     const hash = window.location.hash
