@@ -31,6 +31,8 @@ __pycache__/
 .venv/
 venv/
 
+.env
+**/agent-eval-report*
 packages
 pids
 .file-manifest
