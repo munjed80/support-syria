@@ -17,7 +17,7 @@
  *   await api.updateStatus(id, { status: 'received' })
  */
 
-import type { ServiceRequest, RequestUpdate, District, User, UserRole } from '@/lib/types'
+import type { ServiceRequest, RequestUpdate, District, Municipality, User, UserRole } from '@/lib/types'
 
 const BASE_URL = (import.meta as any).env?.VITE_API_URL ?? 'http://localhost:8000'
 
@@ -32,15 +32,30 @@ export interface UserOut {
   id: string
   email: string
   role: string
-  municipality_id: string
+  governorate_id?: string
+  municipality_id?: string
   district_id?: string
   name: string
+}
+
+export interface GovernorateOut {
+  id: string
+  name: string
+  is_active: boolean
+}
+
+export interface MunicipalityOut {
+  id: string
+  governorate_id?: string
+  name: string
+  is_active: boolean
 }
 
 export interface DistrictOut {
   id: string
   municipality_id: string
   name: string
+  is_active: boolean
 }
 
 export interface ServiceRequestOut {
@@ -112,10 +127,18 @@ export interface StatusUpdateRequest {
 }
 
 export interface RequestsFilter {
-  status?: string
-  category?: string
-  priority?: string
+  municipality_id?: string
   district_id?: string
+  status?: string | string[]
+  category?: string | string[]
+  priority?: string | string[]
+  overdue?: boolean
+  sla_breached?: boolean
+  date_from?: string
+  date_to?: string
+  search?: string
+  sort_by?: string
+  sort_dir?: string
   assigned_to_me?: boolean
   page?: number
   page_size?: number
@@ -168,11 +191,21 @@ export function toRequestUpdate(u: RequestUpdateOut): RequestUpdate {
   }
 }
 
+export function toMunicipality(m: MunicipalityOut): Municipality {
+  return {
+    id: String(m.id),
+    governorateId: m.governorate_id ? String(m.governorate_id) : undefined,
+    name: m.name,
+    isActive: m.is_active,
+  }
+}
+
 export function toDistrict(d: DistrictOut): District {
   return {
     id: String(d.id),
     municipalityId: String(d.municipality_id),
     name: d.name,
+    isActive: d.is_active,
   }
 }
 
@@ -180,9 +213,10 @@ export function toUser(u: UserOut): User {
   return {
     id: String(u.id),
     email: u.email,
-    passwordHash: '', // password is never exposed by the API; field kept for type compatibility
+    passwordHash: '',
     role: u.role as UserRole,
-    municipalityId: String(u.municipality_id),
+    governorateId: u.governorate_id ? String(u.governorate_id) : undefined,
+    municipalityId: u.municipality_id ? String(u.municipality_id) : undefined,
     districtId: u.district_id ? String(u.district_id) : undefined,
     name: u.name,
   }
@@ -274,14 +308,76 @@ class ApiClient {
   async getRequests(filters: RequestsFilter = {}): Promise<PaginatedRequests> {
     const params = new URLSearchParams()
     Object.entries(filters).forEach(([k, v]) => {
-      if (v !== undefined && v !== null && v !== '') params.set(k, String(v))
+      if (v === undefined || v === null || v === '') return
+      if (Array.isArray(v)) {
+        v.forEach((item) => params.append(k, String(item)))
+      } else {
+        params.set(k, String(v))
+      }
     })
     const qs = params.toString()
     return this.request<PaginatedRequests>(`/admin/requests${qs ? `?${qs}` : ''}`)
   }
 
+  async createRequest(payload: {
+    district_id: string
+    category: string
+    description: string
+    priority?: string
+    address_text?: string
+    location_lat?: number
+    location_lng?: number
+  }): Promise<ServiceRequestOut> {
+    return this.request<ServiceRequestOut>('/admin/requests', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
+  }
+
   async getRequest(id: string): Promise<ServiceRequestDetail> {
     return this.request<ServiceRequestDetail>(`/admin/requests/${id}`)
+  }
+
+  async getMunicipalities(): Promise<MunicipalityOut[]> {
+    return this.request<MunicipalityOut[]>('/admin/municipalities')
+  }
+
+  async createMunicipality(name: string): Promise<MunicipalityOut> {
+    return this.request<MunicipalityOut>('/admin/municipalities', {
+      method: 'POST',
+      body: JSON.stringify({ name }),
+    })
+  }
+
+  async updateMunicipality(
+    id: string,
+    payload: { name?: string; is_active?: boolean },
+  ): Promise<MunicipalityOut> {
+    return this.request<MunicipalityOut>(`/admin/municipalities/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    })
+  }
+
+  async getAdminDistricts(): Promise<DistrictOut[]> {
+    return this.request<DistrictOut[]>('/admin/districts')
+  }
+
+  async createDistrict(name: string): Promise<DistrictOut> {
+    return this.request<DistrictOut>('/admin/districts', {
+      method: 'POST',
+      body: JSON.stringify({ name }),
+    })
+  }
+
+  async updateDistrict(
+    id: string,
+    payload: { name?: string; is_active?: boolean },
+  ): Promise<DistrictOut> {
+    return this.request<DistrictOut>(`/admin/districts/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    })
   }
 
   async getStaff(districtId?: string): Promise<UserOut[]> {

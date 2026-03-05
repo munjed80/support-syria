@@ -1,20 +1,29 @@
 import os
 import uuid
 from datetime import datetime, timezone
-from typing import Optional
+from typing import List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.database import get_db
 from app.deps import get_current_user, require_roles, require_district_scope, require_municipality_scope
-from app.models import Attachment, AuditLog, RequestUpdate, ServiceRequest, User
+from app.models import Attachment, AuditLog, District, Governorate, Municipality, RequestUpdate, ServiceRequest, User
 from app.schemas import (
+    AdminServiceRequestCreate,
     AssignStaffRequest,
     AttachmentOut,
+    DistrictCreate,
+    DistrictOut,
+    DistrictUpdate,
+    GovernorateOut,
     InternalNoteRequest,
+    MunicipalityCreate,
+    MunicipalityOut,
+    MunicipalityUpdate,
     PaginatedRequests,
     PriorityUpdateRequest,
     ServiceRequestDetail,
@@ -27,18 +36,21 @@ from app.sla import calculate_sla_status, can_transition, get_sla_deadline
 settings = get_settings()
 router = APIRouter(prefix="/admin", tags=["admin"])
 
-ALLOWED_ROLES = ("district_admin", "municipal_admin", "staff")
+ALLOWED_ROLES = ("district_admin", "municipal_admin", "staff", "governor", "mayor", "mukhtar")
 
 
 def _scoped_requests(db: Session, user: User):
     """Return a base query scoped to the user's access level."""
     q = db.query(ServiceRequest)
-    if user.role == "municipal_admin":
+    if user.role == "governor":
+        from sqlalchemy import select
+        mun_subq = select(Municipality.id).where(Municipality.governorate_id == user.governorate_id)
+        q = q.filter(ServiceRequest.municipality_id.in_(mun_subq))
+    elif user.role in ("municipal_admin", "mayor"):
         q = q.filter(ServiceRequest.municipality_id == user.municipality_id)
-    elif user.role == "district_admin":
+    elif user.role in ("district_admin", "mukhtar"):
         q = q.filter(ServiceRequest.district_id == user.district_id)
     elif user.role == "staff":
-        # Security fix: staff may only see requests explicitly assigned to them
         q = q.filter(ServiceRequest.assigned_to_user_id == user.id)
     return q
 
@@ -54,42 +66,217 @@ def _log(db: Session, actor_id, action: str, entity_type: str, entity_id: str, d
     db.add(entry)
 
 
+# ─── Governorates ─────────────────────────────────────────────────────────────
+
+@router.get("/governorates", response_model=list[GovernorateOut])
+def list_governorates(
+    current_user: User = Depends(require_roles("governor")),
+    db: Session = Depends(get_db),
+):
+    return db.query(Governorate).filter(Governorate.id == current_user.governorate_id).all()
+
+
+# ─── Municipalities ────────────────────────────────────────────────────────────
+
+@router.get("/municipalities", response_model=list[MunicipalityOut])
+def list_municipalities(
+    current_user: User = Depends(require_roles("governor")),
+    db: Session = Depends(get_db),
+):
+    return (
+        db.query(Municipality)
+        .filter(Municipality.governorate_id == current_user.governorate_id)
+        .order_by(Municipality.name)
+        .all()
+    )
+
+
+@router.post("/municipalities", response_model=MunicipalityOut, status_code=201)
+def create_municipality(
+    payload: MunicipalityCreate,
+    current_user: User = Depends(require_roles("governor")),
+    db: Session = Depends(get_db),
+):
+    mun = Municipality(
+        name=payload.name,
+        governorate_id=current_user.governorate_id,
+        is_active=True,
+    )
+    db.add(mun)
+    _log(db, current_user.id, "create_municipality", "municipality", str(uuid.uuid4()), payload.name)
+    db.commit()
+    db.refresh(mun)
+    return mun
+
+
+@router.patch("/municipalities/{municipality_id}", response_model=MunicipalityOut)
+def update_municipality(
+    municipality_id: UUID,
+    payload: MunicipalityUpdate,
+    current_user: User = Depends(require_roles("governor")),
+    db: Session = Depends(get_db),
+):
+    mun = db.query(Municipality).filter(
+        Municipality.id == municipality_id,
+        Municipality.governorate_id == current_user.governorate_id,
+    ).first()
+    if not mun:
+        raise HTTPException(status_code=404, detail="Municipality not found")
+    if payload.name is not None:
+        mun.name = payload.name
+    if payload.is_active is not None:
+        mun.is_active = payload.is_active
+    _log(db, current_user.id, "update_municipality", "municipality", str(municipality_id))
+    db.commit()
+    db.refresh(mun)
+    return mun
+
+
+# ─── Districts ────────────────────────────────────────────────────────────────
+
+@router.get("/districts", response_model=list[DistrictOut])
+def list_districts_admin(
+    current_user: User = Depends(require_roles("mayor", "governor")),
+    db: Session = Depends(get_db),
+):
+    if current_user.role == "mayor":
+        return (
+            db.query(District)
+            .filter(District.municipality_id == current_user.municipality_id)
+            .order_by(District.name)
+            .all()
+        )
+    # governor: list all districts in their governorate's municipalities
+    from sqlalchemy import select
+    mun_subq = select(Municipality.id).where(Municipality.governorate_id == current_user.governorate_id)
+    return (
+        db.query(District)
+        .filter(District.municipality_id.in_(mun_subq))
+        .order_by(District.name)
+        .all()
+    )
+
+
+@router.post("/districts", response_model=DistrictOut, status_code=201)
+def create_district(
+    payload: DistrictCreate,
+    current_user: User = Depends(require_roles("mayor")),
+    db: Session = Depends(get_db),
+):
+    district = District(
+        name=payload.name,
+        municipality_id=current_user.municipality_id,
+        is_active=True,
+    )
+    db.add(district)
+    _log(db, current_user.id, "create_district", "district", str(uuid.uuid4()), payload.name)
+    db.commit()
+    db.refresh(district)
+    return district
+
+
+@router.patch("/districts/{district_id}", response_model=DistrictOut)
+def update_district(
+    district_id: UUID,
+    payload: DistrictUpdate,
+    current_user: User = Depends(require_roles("mayor")),
+    db: Session = Depends(get_db),
+):
+    district = db.query(District).filter(
+        District.id == district_id,
+        District.municipality_id == current_user.municipality_id,
+    ).first()
+    if not district:
+        raise HTTPException(status_code=404, detail="District not found")
+    if payload.name is not None:
+        district.name = payload.name
+    if payload.is_active is not None:
+        district.is_active = payload.is_active
+    _log(db, current_user.id, "update_district", "district", str(district_id))
+    db.commit()
+    db.refresh(district)
+    return district
+
+
+# ─── Requests ─────────────────────────────────────────────────────────────────
+
 @router.get("/requests", response_model=PaginatedRequests)
 def list_requests(
-    status: Optional[str] = Query(None),
-    category: Optional[str] = Query(None),
-    priority: Optional[str] = Query(None),
+    municipality_id: Optional[UUID] = Query(None),
     district_id: Optional[UUID] = Query(None),
+    status: Optional[List[str]] = Query(None),
+    category: Optional[List[str]] = Query(None),
+    priority: Optional[List[str]] = Query(None),
+    overdue: Optional[bool] = Query(None),
+    sla_breached: Optional[bool] = Query(None),
+    date_from: Optional[datetime] = Query(None),
+    date_to: Optional[datetime] = Query(None),
+    search: Optional[str] = Query(None),
+    sort_by: Optional[str] = Query("created_at"),
+    sort_dir: Optional[str] = Query("desc"),
     assigned_to_me: Optional[bool] = Query(None),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     current_user: User = Depends(require_roles(*ALLOWED_ROLES)),
     db: Session = Depends(get_db),
 ):
-    # _scoped_requests already restricts staff to their assigned requests
     q = _scoped_requests(db, current_user)
 
-    # For staff, assigned_to_me is implicitly always true (enforced above).
-    # For other roles, honour the optional param to narrow results further.
     if assigned_to_me and current_user.role != "staff":
         q = q.filter(ServiceRequest.assigned_to_user_id == current_user.id)
 
+    # Multi-value filters
     if status:
-        q = q.filter(ServiceRequest.status == status)
+        q = q.filter(ServiceRequest.status.in_(status))
     if category:
-        q = q.filter(ServiceRequest.category == category)
+        q = q.filter(ServiceRequest.category.in_(category))
     if priority:
-        q = q.filter(ServiceRequest.priority == priority)
-    if district_id and current_user.role == "municipal_admin":
+        q = q.filter(ServiceRequest.priority.in_(priority))
+
+    # Scope filters (governor can drill into a specific municipality/district)
+    if municipality_id and current_user.role in ("governor",):
+        q = q.filter(ServiceRequest.municipality_id == municipality_id)
+    if district_id and current_user.role in ("governor", "municipal_admin", "mayor"):
         q = q.filter(ServiceRequest.district_id == district_id)
 
+    # Overdue: closed_at is null AND sla_deadline < now
+    if overdue is True:
+        now = datetime.now(timezone.utc)
+        q = q.filter(
+            ServiceRequest.closed_at.is_(None),
+            ServiceRequest.sla_deadline < now,
+        )
+
+    # SLA breached
+    if sla_breached is True:
+        q = q.filter(ServiceRequest.sla_status == "breached")
+
+    # Date range
+    if date_from:
+        q = q.filter(ServiceRequest.created_at >= date_from)
+    if date_to:
+        q = q.filter(ServiceRequest.created_at <= date_to)
+
+    # Full-text search on description, tracking_code
+    if search and search.strip():
+        term = f"%{search.strip()}%"
+        q = q.filter(
+            or_(
+                ServiceRequest.description.ilike(term),
+                ServiceRequest.tracking_code.ilike(term),
+                ServiceRequest.address_text.ilike(term),
+            )
+        )
+
+    # Sorting
+    sort_column = getattr(ServiceRequest, sort_by, ServiceRequest.created_at)
+    if sort_dir == "asc":
+        q = q.order_by(sort_column.asc())
+    else:
+        q = q.order_by(sort_column.desc())
+
     total = q.count()
-    items = (
-        q.order_by(ServiceRequest.created_at.desc())
-        .offset((page - 1) * page_size)
-        .limit(page_size)
-        .all()
-    )
+    items = q.offset((page - 1) * page_size).limit(page_size).all()
     return PaginatedRequests(items=items, total=total, page=page, page_size=page_size)
 
 
@@ -106,11 +293,73 @@ def get_request(
     return req
 
 
+@router.post("/requests", response_model=ServiceRequestOut, status_code=201)
+def create_request(
+    payload: AdminServiceRequestCreate,
+    current_user: User = Depends(require_roles("mukhtar", "district_admin")),
+    db: Session = Depends(get_db),
+):
+    """MUKHTAR creates a service request manually for their district."""
+    # Enforce scope: mukhtar can only create in their own district
+    if str(payload.district_id) != str(current_user.district_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="يمكنك إضافة طلبات في حيّك فقط",
+        )
+    district = db.query(District).filter(District.id == payload.district_id).first()
+    if not district:
+        raise HTTPException(status_code=404, detail="District not found")
+
+    import secrets
+    TRACKING_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+    for _ in range(10):
+        code = "".join(secrets.choice(TRACKING_CHARS) for _ in range(8))
+        if not db.query(ServiceRequest).filter(ServiceRequest.tracking_code == code).first():
+            break
+    else:
+        raise HTTPException(status_code=500, detail="Could not generate unique tracking code")
+
+    now = datetime.now(timezone.utc)
+    sla_deadline = get_sla_deadline(now, payload.category, payload.priority)
+    sla_st = calculate_sla_status(now, payload.category, payload.priority, "submitted",
+                                   sla_deadline=sla_deadline)
+
+    req = ServiceRequest(
+        municipality_id=district.municipality_id,
+        district_id=district.id,
+        category=payload.category,
+        priority=payload.priority,
+        status="submitted",
+        description=payload.description,
+        tracking_code=code,
+        address_text=payload.address_text,
+        location_lat=payload.location_lat,
+        location_lng=payload.location_lng,
+        sla_deadline=sla_deadline,
+        sla_status=sla_st,
+    )
+    db.add(req)
+    db.flush()
+
+    db.add(RequestUpdate(
+        request_id=req.id,
+        actor_user_id=current_user.id,
+        actor_name=current_user.name,
+        message="تم تسجيل الطلب من قِبل المختار",
+        to_status="submitted",
+        is_internal=False,
+    ))
+    _log(db, current_user.id, "create_request", "service_request", req.id)
+    db.commit()
+    db.refresh(req)
+    return req
+
+
 @router.post("/requests/{request_id}/assign", response_model=ServiceRequestOut)
 def assign_staff(
     request_id: UUID,
     payload: AssignStaffRequest,
-    current_user: User = Depends(require_roles("district_admin", "municipal_admin")),
+    current_user: User = Depends(require_roles("district_admin", "municipal_admin", "mayor")),
     db: Session = Depends(get_db),
 ):
     req = _scoped_requests(db, current_user).filter(ServiceRequest.id == request_id).first()
@@ -225,7 +474,7 @@ def update_status(
 def update_priority(
     request_id: UUID,
     payload: PriorityUpdateRequest,
-    current_user: User = Depends(require_roles("district_admin", "municipal_admin")),
+    current_user: User = Depends(require_roles("district_admin", "municipal_admin", "mayor", "mukhtar")),
     db: Session = Depends(get_db),
 ):
     req = _scoped_requests(db, current_user).filter(ServiceRequest.id == request_id).first()
@@ -298,7 +547,6 @@ async def upload_attachment(
     if not req:
         raise HTTPException(status_code=404, detail="Request not found")
 
-    # Validate size (5 MB)
     content = await file.read()
     if len(content) > 5 * 1024 * 1024:
         raise HTTPException(status_code=413, detail="File too large (max 5 MB)")
@@ -329,7 +577,7 @@ async def upload_attachment(
 @router.get("/staff", response_model=list[UserOut])
 def list_staff(
     district_id: Optional[UUID] = Query(None),
-    current_user: User = Depends(require_roles("district_admin", "municipal_admin")),
+    current_user: User = Depends(require_roles("district_admin", "municipal_admin", "mayor")),
     db: Session = Depends(get_db),
 ):
     """List staff members accessible to the current admin for assignment purposes."""
@@ -338,6 +586,6 @@ def list_staff(
         q = q.filter(User.district_id == district_id)
     elif current_user.role == "district_admin":
         q = q.filter(User.district_id == current_user.district_id)
-    elif current_user.role == "municipal_admin":
+    elif current_user.role in ("municipal_admin", "mayor"):
         q = q.filter(User.municipality_id == current_user.municipality_id)
     return q.order_by(User.name).all()

@@ -12,6 +12,9 @@ class UserRole(str):
     district_admin = "district_admin"
     municipal_admin = "municipal_admin"
     staff = "staff"
+    governor = "governor"
+    mayor = "mayor"
+    mukhtar = "mukhtar"
 
 
 # ─── Auth ─────────────────────────────────────────────────────────────────────
@@ -30,9 +33,21 @@ class UserOut(BaseModel):
     id: UUID
     email: str
     role: str
-    municipality_id: UUID
+    governorate_id: Optional[UUID] = None
+    municipality_id: Optional[UUID] = None
     district_id: Optional[UUID] = None
     name: str
+
+    class Config:
+        from_attributes = True
+
+
+# ─── Governorate ──────────────────────────────────────────────────────────────
+
+class GovernorateOut(BaseModel):
+    id: UUID
+    name: str
+    is_active: bool
 
     class Config:
         from_attributes = True
@@ -42,19 +57,40 @@ class UserOut(BaseModel):
 
 class MunicipalityOut(BaseModel):
     id: UUID
+    governorate_id: Optional[UUID] = None
     name: str
+    is_active: bool
 
     class Config:
         from_attributes = True
+
+
+class MunicipalityCreate(BaseModel):
+    name: str
+
+
+class MunicipalityUpdate(BaseModel):
+    name: Optional[str] = None
+    is_active: Optional[bool] = None
 
 
 class DistrictOut(BaseModel):
     id: UUID
     municipality_id: UUID
     name: str
+    is_active: bool
 
     class Config:
         from_attributes = True
+
+
+class DistrictCreate(BaseModel):
+    name: str
+
+
+class DistrictUpdate(BaseModel):
+    name: Optional[str] = None
+    is_active: Optional[bool] = None
 
 
 # ─── Attachments ──────────────────────────────────────────────────────────────
@@ -164,6 +200,16 @@ class PriorityUpdateRequest(BaseModel):
 
 class InternalNoteRequest(BaseModel):
     message: str
+
+
+class AdminServiceRequestCreate(BaseModel):
+    district_id: UUID
+    category: str
+    description: str
+    priority: str = "normal"
+    address_text: Optional[str] = None
+    location_lat: Optional[float] = None
+    location_lng: Optional[float] = None
 
 
 # ─── Paginated responses ──────────────────────────────────────────────────────

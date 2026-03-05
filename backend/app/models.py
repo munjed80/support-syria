@@ -15,13 +15,28 @@ def utcnow():
     return datetime.now(timezone.utc)
 
 
+class Governorate(Base):
+    __tablename__ = "governorates"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name = Column(String(255), nullable=False)
+    is_active = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+    municipalities = relationship("Municipality", back_populates="governorate")
+    users = relationship("User", back_populates="governorate")
+
+
 class Municipality(Base):
     __tablename__ = "municipalities"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    governorate_id = Column(UUID(as_uuid=True), ForeignKey("governorates.id"), nullable=True)
     name = Column(String(255), nullable=False)
+    is_active = Column(Boolean, default=True, nullable=False)
     created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
 
+    governorate = relationship("Governorate", back_populates="municipalities")
     districts = relationship("District", back_populates="municipality")
     users = relationship("User", back_populates="municipality")
     service_requests = relationship("ServiceRequest", back_populates="municipality")
@@ -33,6 +48,7 @@ class District(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     municipality_id = Column(UUID(as_uuid=True), ForeignKey("municipalities.id"), nullable=False)
     name = Column(String(255), nullable=False)
+    is_active = Column(Boolean, default=True, nullable=False)
     created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
 
     municipality = relationship("Municipality", back_populates="districts")
@@ -47,14 +63,20 @@ class User(Base):
     email = Column(String(255), nullable=False, unique=True)
     password_hash = Column(String(255), nullable=False)
     role = Column(
-        Enum("citizen", "district_admin", "municipal_admin", "staff", name="user_role"),
+        Enum(
+            "citizen", "district_admin", "municipal_admin", "staff",
+            "governor", "mayor", "mukhtar",
+            name="user_role",
+        ),
         nullable=False,
     )
-    municipality_id = Column(UUID(as_uuid=True), ForeignKey("municipalities.id"), nullable=False)
+    governorate_id = Column(UUID(as_uuid=True), ForeignKey("governorates.id"), nullable=True)
+    municipality_id = Column(UUID(as_uuid=True), ForeignKey("municipalities.id"), nullable=True)
     district_id = Column(UUID(as_uuid=True), ForeignKey("districts.id"), nullable=True)
     name = Column(String(255), nullable=False)
     created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
 
+    governorate = relationship("Governorate", back_populates="users")
     municipality = relationship("Municipality", back_populates="users")
     district = relationship("District", back_populates="users")
     audit_logs = relationship("AuditLog", back_populates="actor")
