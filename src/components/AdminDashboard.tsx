@@ -764,7 +764,7 @@ function RequestsView({ user }: { user: User }) {
                           )}
                         </TableCell>
                         <TableCell>
-                          <div className="flex items-center gap-1">
+                          <div className="flex items-center gap-2">
                             <Badge className={PRIORITY_BADGE_COLORS[request.priority]}>
                               {PRIORITIES[request.priority]}
                             </Badge>

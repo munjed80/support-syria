@@ -103,7 +103,8 @@ def create_municipality(
         is_active=True,
     )
     db.add(mun)
-    _log(db, current_user.id, "create_municipality", "municipality", str(uuid.uuid4()), payload.name)
+    db.flush()
+    _log(db, current_user.id, "create_municipality", "municipality", str(mun.id), payload.name)
     db.commit()
     db.refresh(mun)
     return mun
@@ -169,7 +170,8 @@ def create_district(
         is_active=True,
     )
     db.add(district)
-    _log(db, current_user.id, "create_district", "district", str(uuid.uuid4()), payload.name)
+    db.flush()
+    _log(db, current_user.id, "create_district", "district", str(district.id), payload.name)
     db.commit()
     db.refresh(district)
     return district
