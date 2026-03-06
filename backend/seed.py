@@ -146,21 +146,21 @@ def seed():
                 "category": "water",
                 "description": "تسرب مياه في الرصيف الغربي",
                 "priority": "urgent",
-                "status": "received",
+                "status": "under_review",
             },
             {
                 "district": districts[3],  # الميدان
                 "category": "waste",
                 "description": "حاويات القمامة لم تُفرغ منذ 3 أيام",
                 "priority": "normal",
-                "status": "submitted",
+                "status": "new",
             },
             {
                 "district": districts[4],  # القدم
                 "category": "roads",
                 "description": "حفرة كبيرة في الطريق الرئيسي",
                 "priority": "high",
-                "status": "submitted",
+                "status": "new",
             },
         ]
 
@@ -187,7 +187,7 @@ def seed():
             db.add(RequestUpdate(
                 request_id=req.id,
                 message="تم استلام الطلب",
-                to_status="submitted",
+                to_status="new",
                 is_internal=False,
             ))
 

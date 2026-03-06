@@ -1,245 +1,179 @@
-# نظام الطلبات البلدية (Municipal Requests System)
+# نظام الطلبات البلدية – محافظة دمشق
 
-A comprehensive municipal service requests (complaints) management system in Arabic with full RTL support.
-
-## Overview
-
-This system enables:
-- **Citizens** to submit and track service requests anonymously (no login required)
-- **District Administrators** to manage requests within their neighborhood
-- **Municipal Administrators** to oversee performance across all districts
-- **Staff/Field Workers** to receive and complete assigned work orders
+نظام إدارة شكاوى وطلبات الخدمات البلدية باللغة العربية (RTL) خاص بمحافظة دمشق.
 
 ---
 
-## Backend Setup (FastAPI + PostgreSQL)
+## كيفية التشغيل (Docker Compose)
 
-### Prerequisites
-- Docker & Docker Compose
+### المتطلبات
+- Docker و Docker Compose
 
-### Quick Start
+### التشغيل السريع
 
 ```bash
-# 1. Copy environment file
+# 1. نسخ ملف البيئة
 cp .env.example .env
-# Edit .env and change SECRET_KEY to a strong random value
+# عدّل .env وأضف SECRET_KEY قوياً
 
-# 2. Start services (PostgreSQL + FastAPI backend)
+# 2. تشغيل الخدمات (PostgreSQL + FastAPI)
 docker compose up --build
 
-# The backend will automatically:
-#   - Run Alembic migrations
-#   - Seed the database with default data
-#   - Start on http://localhost:8000
+# يقوم الباكند تلقائياً بـ:
+#   - تطبيق الترحيلات (alembic upgrade head)
+#   - تهيئة قاعدة البيانات (python seed.py)
+#   - التشغيل على http://localhost:8000
+
+# 3. تشغيل الواجهة الأمامية (في terminal منفصل)
+npm install
+npm run dev
+# الواجهة تعمل على http://localhost:5173
 ```
 
-### Default Seed Credentials
+### متغيرات البيئة الرئيسية
 
-| Role | Email | Password |
-|------|-------|----------|
-| Municipal Admin | `admin@mun.sa` | `admin123` |
-| District Admin (حي العليا) | `district1@mun.sa` | `pass123` |
-| District Admin (حي الملز) | `district2@mun.sa` | `pass123` |
-| Staff (حي العليا) | `staff1@mun.sa` | `staff123` |
-| Staff (حي الملز) | `staff2@mun.sa` | `staff123` |
+| المتغير | القيمة الافتراضية | الوصف |
+|---------|-------------------|-------|
+| `DATABASE_URL` | `postgresql://postgres:postgres@db:5432/municipal_requests` | رابط قاعدة البيانات |
+| `SECRET_KEY` | (يجب تغييره) | مفتاح JWT |
+| `CORS_ORIGINS` | `http://localhost:5173` | أصول CORS المسموح بها |
+| `VITE_API_URL` | `http://localhost:8000` | رابط الـ API للواجهة الأمامية |
 
-### API Documentation
+---
 
-Once running, interactive API docs are available at:
-- Swagger UI: http://localhost:8000/docs
-- ReDoc: http://localhost:8000/redoc
+## حسابات النظام (البذور – Damascus Seed Accounts)
 
-### Manual Setup (without Docker)
+| الدور | البريد الإلكتروني | كلمة المرور | النطاق |
+|-------|-------------------|-------------|--------|
+| **محافظ** | `governor@damascus.sy` | `gov123` | محافظة دمشق كاملة |
+| **رئيس البلدية** | `mayor@damascus.sy` | `mayor123` | بلدية دمشق كاملة |
+| **مختار دمر** | `mukhtar.damar@damascus.sy` | `mukhtar123` | حي دمر |
+| **مختار المزة** | `mukhtar.mazzeh@damascus.sy` | `mukhtar123` | حي المزة |
+| **مختار الميدان** | `mukhtar.midan@damascus.sy` | `mukhtar123` | حي الميدان |
 
-```bash
-cd backend
-python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
-pip install -r requirements.txt
+---
 
-# Set environment variables
-export DATABASE_URL=postgresql://postgres:postgres@localhost:5432/municipal_requests
-export SECRET_KEY=your-secret-key
+## سيناريو العرض التجريبي (Demo Scenario)
 
-# Run migrations
-alembic upgrade head
+### 1. تسجيل شكوى من قِبل المختار
+1. سجّل دخولك بحساب مختار دمر: `mukhtar.damar@damascus.sy` / `mukhtar123`
+2. انقر على **"تسجيل طلب"** في لوحة الطلبات
+3. اختر الفئة والأولوية وأدخل وصف الشكوى (الحي مثبّت تلقائياً على **دمر**)
+4. بعد الحفظ، تظهر رسالة تأكيد مع **رمز التتبع**
 
-# Seed database
-python seed.py
+### 2. إحالة الشكوى من المختار إلى رئيس البلدية
+1. افتح الطلب المسجَّل، انقر على **"تغيير الحالة"**
+2. اختر **قيد الدراسة** (الانتقال المتاح الوحيد للمختار: جديدة → قيد الدراسة)
+3. احفظ التغيير – يُسجَّل في السجل الزمني
 
-# Start server
-uvicorn app.main:app --reload --port 8000
+### 3. معالجة الشكوى من رئيس البلدية
+1. سجّل دخولك بحساب رئيس البلدية: `mayor@damascus.sy` / `mayor123`
+2. ابحث عن الطلب، افتح التفاصيل
+3. غيّر الحالة إلى **قيد المعالجة** (under_review → in_progress)
+4. أو غيّرها إلى **مرفوضة** مع إدخال سبب الرفض الإلزامي
+
+### 4. إغلاق الطلب (تم الحل)
+1. سجّل دخولك بحساب رئيس البلدية
+2. افتح الطلب قيد المعالجة
+3. غيّر الحالة إلى **تم الحل** (resolved)
+4. ارفع **صورة "بعد الإنجاز"** (إلزامية)
+5. يُغلق الطلب ويُسجَّل في السجل الزمني مع الصورة
+
+### 5. نظرة المحافظ العامة
+1. سجّل دخولك بحساب المحافظ: `governor@damascus.sy` / `gov123`
+2. استخدم فلاتر لوحة التحكم لتصفية الطلبات:
+   - حسب البلدية والحي
+   - حسب الحالة (متعدد الاختيار)
+   - حسب الفئة والأولوية
+   - حسب تاريخ الإنشاء أو SLA المتأخرة
+3. المحافظ يمكنه تغيير أي حالة إلى أي حالة أخرى
+
+---
+
+## نموذج البيانات
+
+### هيكل المحافظة
+```
+محافظة دمشق (Governorate)
+  └── بلدية دمشق (Municipality)
+        ├── دمر، المزة، كفرسوسة، الميدان، القدم، اليرموك...
+        └── (16 حياً)
 ```
 
----
+### دورة حياة الطلب (Status Workflow)
 
-## API Endpoints
+| الحالة | العربية | الانتقالات المسموحة | من يملك الصلاحية |
+|--------|---------|---------------------|-----------------|
+| `new` | جديدة | → `under_review` | المختار / محافظ |
+| `under_review` | قيد الدراسة | → `in_progress`, `rejected` | رئيس البلدية / محافظ |
+| `in_progress` | قيد المعالجة | → `resolved`, `deferred`, `rejected` | رئيس البلدية / محافظ |
+| `resolved` | تم الحل | — (مغلق) | رئيس البلدية / محافظ |
+| `rejected` | مرفوضة | — (مغلق) | رئيس البلدية / محافظ |
+| `deferred` | مؤجلة | → `in_progress`, `rejected` | رئيس البلدية / محافظ |
 
-### Auth
-| Method | Path | Description |
-|--------|------|-------------|
-| `POST` | `/auth/login` | Login with email/password, returns JWT |
-| `GET` | `/auth/me` | Get current user info |
-
-### Public (No Auth Required)
-| Method | Path | Description |
-|--------|------|-------------|
-| `POST` | `/public/requests` | Submit a new service request |
-| `GET` | `/public/requests/{tracking_code}` | Track request by code |
-| `POST` | `/public/requests/{tracking_code}/update` | Add citizen update (rate-limited: 3/hour) |
-
-### Admin (JWT Required)
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/admin/requests` | List requests (scoped by role) |
-| `GET` | `/admin/requests/{id}` | Get request details |
-| `POST` | `/admin/requests/{id}/assign` | Assign staff to request |
-| `POST` | `/admin/requests/{id}/status` | Update request status |
-| `POST` | `/admin/requests/{id}/priority` | Update request priority |
-| `POST` | `/admin/requests/{id}/note` | Add internal note |
-| `POST` | `/admin/requests/{id}/attachments` | Upload attachment |
+**قواعد صارمة:**
+- **الرفض** يتطلب سبب الرفض (rejection_reason إلزامي)
+- **تم الحل** يتطلب صورة "بعد الإنجاز" (completion_photo_url إلزامي)
+- كل تغيير حالة يُسجَّل في السجل الزمني وسجل التدقيق
 
 ---
 
-## Frontend API Client
+## نقاط نهاية API
 
-A lightweight API client is available at `src/lib/api.ts`:
+### المصادقة
+| الطريقة | المسار | الوصف |
+|---------|--------|-------|
+| `POST` | `/auth/login` | تسجيل دخول (email + password) → JWT |
+| `GET` | `/auth/me` | بيانات المستخدم الحالي |
 
-```typescript
-import { api } from '@/lib/api'
+### عام (بدون مصادقة)
+| الطريقة | المسار | الوصف |
+|---------|--------|-------|
+| `GET` | `/public/districts` | قائمة الأحياء |
+| `POST` | `/public/requests` | تقديم طلب جديد |
+| `GET` | `/public/requests/{code}` | تتبع طلب برمز التتبع |
 
-// Configure the backend URL via VITE_API_URL env variable (default: http://localhost:8000)
-
-// Login
-const { access_token } = await api.login('admin@mun.sa', 'admin123')
-api.setToken(access_token)  // stores in localStorage automatically
-
-// Public – submit a request
-const req = await api.submitRequest({
-  district_id: '...',
-  category: 'lighting',
-  description: 'عمود إنارة مكسور',
-})
-
-// Public – track a request
-const tracked = await api.trackRequest('ABCD1234')
-
-// Admin – list requests
-const { items } = await api.getRequests({ status: 'submitted', page: 1 })
-
-// Admin – update status
-await api.updateStatus(req.id, { status: 'received' })
-```
-
----
-
-## Features
-
-### Citizen Portal (Public Access)
-- ✅ Submit service requests without login
-- ✅ Choose category (إنارة, مياه, نفايات, طرق, أخرى)
-- ✅ Select district from dropdown
-- ✅ Add description and optional photo
-- ✅ Optional location (address text)
-- ✅ Receive unique tracking code
-- ✅ Track request status with public timeline
-- ✅ Rate-limited to 3 submissions per IP per hour
-
-### District Admin Dashboard
-- ✅ View all requests for assigned district
-- ✅ Filter by status, category, priority
-- ✅ Role-based access control (district-scoped)
-- ✅ Assign staff, change status, add internal notes
-- ✅ Track overdue requests with SLA alerts
-
-### Municipal Admin Dashboard
-- ✅ Municipality-wide KPI overview
-- ✅ View all districts' requests
-- ✅ Filter and search capabilities
-- ✅ Overdue request tracking
-
-### System Features
-- ✅ Full Arabic UI with RTL layout
-- ✅ JWT authentication
-- ✅ RBAC: Municipal Admin / District Admin / Staff
-- ✅ Status workflow enforcement (invalid transitions blocked)
-- ✅ Reject requires reason; Complete requires after-photo
-- ✅ SLA tracking server-side (met / at_risk / breached)
-- ✅ Automatic priority escalation rules
-- ✅ Audit trail for all actions
-- ✅ File upload (local storage, max 5 MB)
-- ✅ Mobile-responsive design
+### إدارة (JWT مطلوب)
+| الطريقة | المسار | الوصف |
+|---------|--------|-------|
+| `GET` | `/admin/requests` | قائمة الطلبات (مُقيَّدة بالدور) |
+| `GET` | `/admin/requests/{id}` | تفاصيل طلب مع السجل الزمني |
+| `POST` | `/admin/requests` | إنشاء طلب يدوي (مختار فقط) |
+| `POST` | `/admin/requests/{id}/status` | تغيير الحالة (حسب الدور) |
+| `POST` | `/admin/requests/{id}/priority` | تغيير الأولوية |
+| `POST` | `/admin/requests/{id}/note` | إضافة ملاحظة داخلية |
+| `POST` | `/admin/requests/{id}/attachments?kind=before\|after\|other` | رفع مرفق |
+| `GET` | `/admin/municipalities` | البلديات (محافظ) |
+| `POST` | `/admin/municipalities` | إنشاء بلدية |
+| `GET` | `/admin/districts` | الأحياء (رئيس بلدية/محافظ) |
+| `POST` | `/admin/districts` | إنشاء حي (رئيس بلدية) |
 
 ---
 
-## Technology Stack
+## التقنيات المستخدمة
 
-### Frontend
+### الواجهة الأمامية
 - **React 19** + TypeScript
-- **Tailwind CSS** with custom Arabic theme
+- **Tailwind CSS** مع دعم RTL
 - **shadcn/ui** components
-- **Phosphor Icons**
-- **Vite** build tool
+- **Vite**
 
-### Backend
+### الباكند
 - **FastAPI** (Python 3.12)
-- **PostgreSQL 16** + **SQLAlchemy 2** ORM
-- **Alembic** migrations
-- **JWT** authentication (python-jose)
-- **bcrypt** password hashing (passlib)
-- **slowapi** rate limiting
-- **Docker Compose** for local development
+- **PostgreSQL 16** + SQLAlchemy 2
+- **Alembic** (ترحيلات قاعدة البيانات)
+- **JWT** (python-jose)
+- **bcrypt** (passlib)
+- **Docker Compose**
 
 ---
 
-## Data Model
+## الأمان
 
-### Entities
+- كلمات المرور مُشفَّرة بـ bcrypt
+- توكنات JWT تنتهي بعد 8 ساعات (قابل للضبط)
+- التحكم في الوصول مبني على الأدوار (RBAC)
+- تحديد معدل الطلبات العامة
+- التحقق من حجم الملفات (5 ميجابايت كحد أقصى)
+- السجلات الداخلية لا تظهر في API العام
 
-**Municipalities** → **Districts** → **Users** (staff, admins)
-
-**Service Requests** have:
-- Category: lighting | water | waste | roads | other
-- Priority: low | normal | high | urgent
-- Status: submitted → received → in_progress → completed | rejected
-- SLA deadline (calculated server-side from category + priority)
-- Tracking code (8-char, alphanumeric, public)
-
-**Request Updates** – timeline entries (public or internal)
-
-**Assignments** – staff assignment records
-
-**Attachments** – uploaded files linked to a request
-
-**Audit Log** – immutable log of all admin actions
-
----
-
-## SLA Logic
-
-SLA deadlines are calculated server-side at request creation:
-
-| Category | Low | Normal | High | Urgent |
-|----------|-----|--------|------|--------|
-| Water    | 2d  | 1d     | 12h  | 6h     |
-| Waste    | 3d  | 2d     | 1d   | 12h    |
-| Lighting | 5d  | 3d     | 2d   | 1d     |
-| Roads    | 10d | 7d     | 5d   | 2d     |
-| Other    | 7d  | 5d     | 3d   | 1d     |
-
-SLA status: `met` | `at_risk` (< 25% remaining) | `breached`
-
----
-
-## Security
-
-- Passwords hashed with bcrypt
-- JWT tokens expire after 8 hours (configurable)
-- Role + scope enforced on every admin endpoint
-- Rate limiting on public submission endpoint
-- File size validation (5 MB max)
-- No PII leaked in public tracking endpoint (internal notes hidden)
-
-## License
-
-© 2024 Municipal Requests System. All rights reserved.

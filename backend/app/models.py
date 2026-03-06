@@ -98,9 +98,10 @@ class ServiceRequest(Base):
         default="normal",
     )
     status = Column(
-        Enum("submitted", "received", "in_progress", "completed", "rejected", name="request_status"),
+        Enum("new", "under_review", "in_progress", "resolved", "rejected", "deferred",
+             name="request_status"),
         nullable=False,
-        default="submitted",
+        default="new",
     )
     description = Column(Text, nullable=False)
     tracking_code = Column(String(16), nullable=False, unique=True, index=True)
@@ -140,11 +141,13 @@ class RequestUpdate(Base):
     actor_name = Column(String(255), nullable=True)
     message = Column(Text, nullable=True)
     from_status = Column(
-        Enum("submitted", "received", "in_progress", "completed", "rejected", name="request_status"),
+        Enum("new", "under_review", "in_progress", "resolved", "rejected", "deferred",
+             name="request_status"),
         nullable=True,
     )
     to_status = Column(
-        Enum("submitted", "received", "in_progress", "completed", "rejected", name="request_status"),
+        Enum("new", "under_review", "in_progress", "resolved", "rejected", "deferred",
+             name="request_status"),
         nullable=True,
     )
     from_priority = Column(
@@ -184,7 +187,7 @@ class Attachment(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     request_id = Column(UUID(as_uuid=True), ForeignKey("service_requests.id"), nullable=False)
-    kind = Column(Enum("photo", "document", name="attachment_kind"), nullable=False, default="photo")
+    kind = Column(Enum("before", "after", "other", name="attachment_kind"), nullable=False, default="other")
     file_url = Column(Text, nullable=False)
     file_name = Column(String(255), nullable=False)
     created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)

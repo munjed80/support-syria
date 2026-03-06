@@ -84,7 +84,7 @@ export function RequestDetailsDialog({ request, open, onOpenChange, currentUser,
   const displayRequest = liveRequest ?? request
 
   const district = (districts || []).find(d => d.id === displayRequest.districtId)
-  const validNextStatuses = getValidNextStatuses(displayRequest.status)
+  const validNextStatuses = getValidNextStatuses(displayRequest.status, currentUser.role)
 
   const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -127,7 +127,7 @@ export function RequestDetailsDialog({ request, open, onOpenChange, currentUser,
       return
     }
 
-    if (!canTransitionTo(displayRequest.status, newStatus as RequestStatus)) {
+    if (!canTransitionTo(displayRequest.status, newStatus as RequestStatus, currentUser.role)) {
       toast.error('هذا التحول غير مسموح به')
       return
     }
@@ -137,7 +137,7 @@ export function RequestDetailsDialog({ request, open, onOpenChange, currentUser,
       return
     }
 
-    if (newStatus === 'completed' && !completionPhoto) {
+    if (newStatus === 'resolved' && !completionPhoto) {
       toast.error('يرجى إضافة صورة بعد الإنجاز')
       return
     }
@@ -147,7 +147,7 @@ export function RequestDetailsDialog({ request, open, onOpenChange, currentUser,
       const updated = await api.updateStatus(displayRequest.id, {
         status: newStatus,
         rejection_reason: newStatus === 'rejected' ? rejectionReason : undefined,
-        completion_photo_url: newStatus === 'completed' ? completionPhoto : undefined,
+        completion_photo_url: newStatus === 'resolved' ? completionPhoto : undefined,
         note: internalNote.trim() || undefined,
       })
       setLiveRequest(toServiceRequest(updated))
@@ -198,11 +198,12 @@ export function RequestDetailsDialog({ request, open, onOpenChange, currentUser,
 
   const getStatusIcon = (status: string) => {
     switch (status) {
-      case 'submitted': return <CircleNotch className="animate-spin" />
-      case 'received': return <Clock />
+      case 'new': return <CircleNotch className="animate-spin" />
+      case 'under_review': return <Clock />
       case 'in_progress': return <Clock className="text-[oklch(0.65_0.13_65)]" />
-      case 'completed': return <CheckCircle className="text-[oklch(0.60_0.15_145)]" />
+      case 'resolved': return <CheckCircle className="text-[oklch(0.60_0.15_145)]" />
       case 'rejected': return <XCircle className="text-destructive" />
+      case 'deferred': return <Clock className="text-[oklch(0.60_0.08_280)]" />
       default: return <CircleNotch />
     }
   }
@@ -286,7 +287,9 @@ export function RequestDetailsDialog({ request, open, onOpenChange, currentUser,
 
           <Separator />
 
-          {(currentUser.role === 'district_admin' || currentUser.role === 'municipal_admin') && (
+          {(currentUser.role === 'district_admin' || currentUser.role === 'municipal_admin' ||
+            currentUser.role === 'mukhtar' || currentUser.role === 'mayor' ||
+            currentUser.role === 'governor') && (
             <div className="space-y-4">
               <h3 className="font-semibold text-lg">الإجراءات</h3>
 
@@ -365,7 +368,7 @@ export function RequestDetailsDialog({ request, open, onOpenChange, currentUser,
                     </div>
                   )}
 
-                  {newStatus === 'completed' && (
+                  {newStatus === 'resolved' && (
                     <div className="space-y-2">
                       <Label>صورة بعد الإنجاز *</Label>
                       <Input

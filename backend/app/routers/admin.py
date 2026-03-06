@@ -31,7 +31,7 @@ from app.schemas import (
     StatusUpdateRequest,
     UserOut,
 )
-from app.sla import calculate_sla_status, can_transition, get_sla_deadline
+from app.sla import calculate_sla_status, can_transition, get_sla_deadline, ROLE_TRANSITIONS
 
 settings = get_settings()
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -323,7 +323,7 @@ def create_request(
 
     now = datetime.now(timezone.utc)
     sla_deadline = get_sla_deadline(now, payload.category, payload.priority)
-    sla_st = calculate_sla_status(now, payload.category, payload.priority, "submitted",
+    sla_st = calculate_sla_status(now, payload.category, payload.priority, "new",
                                    sla_deadline=sla_deadline)
 
     req = ServiceRequest(
@@ -331,7 +331,7 @@ def create_request(
         district_id=district.id,
         category=payload.category,
         priority=payload.priority,
-        status="submitted",
+        status="new",
         description=payload.description,
         tracking_code=code,
         address_text=payload.address_text,
@@ -348,7 +348,7 @@ def create_request(
         actor_user_id=current_user.id,
         actor_name=current_user.name,
         message="تم تسجيل الطلب من قِبل المختار",
-        to_status="submitted",
+        to_status="new",
         is_internal=False,
     ))
     _log(db, current_user.id, "create_request", "service_request", req.id)
@@ -405,30 +405,30 @@ def update_status(
     if not req:
         raise HTTPException(status_code=404, detail="Request not found")
 
-    if not can_transition(req.status, payload.status):
+    if not can_transition(req.status, payload.status, current_user.role):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"Cannot transition from '{req.status}' to '{payload.status}'",
+            detail=f"لا يُسمح بتغيير الحالة من '{req.status}' إلى '{payload.status}' لدورك الحالي",
         )
 
     if payload.status == "rejected" and not (payload.rejection_reason or "").strip():
         raise HTTPException(status_code=422, detail="rejection_reason is required when rejecting")
 
-    if payload.status == "completed" and not (payload.completion_photo_url or "").strip():
-        raise HTTPException(status_code=422, detail="completion_photo_url is required when completing")
+    if payload.status == "resolved" and not (payload.completion_photo_url or "").strip():
+        raise HTTPException(status_code=422, detail="completion_photo_url is required when resolving")
 
     now = datetime.now(timezone.utc)
     old_status = req.status
     req.status = payload.status
     req.updated_at = now
 
-    if payload.status in ("completed", "rejected"):
+    if payload.status in ("resolved", "rejected", "deferred"):
         req.closed_at = now
 
     if payload.status == "rejected" and payload.rejection_reason:
         req.rejection_reason = payload.rejection_reason
 
-    if payload.status == "completed" and payload.completion_photo_url:
+    if payload.status == "resolved" and payload.completion_photo_url:
         req.completion_photo_url = payload.completion_photo_url
 
     req.sla_status = calculate_sla_status(
@@ -542,6 +542,7 @@ def add_internal_note(
 async def upload_attachment(
     request_id: UUID,
     file: UploadFile = File(...),
+    kind: str = Query("other"),
     current_user: User = Depends(require_roles(*ALLOWED_ROLES)),
     db: Session = Depends(get_db),
 ):
@@ -549,12 +550,17 @@ async def upload_attachment(
     if not req:
         raise HTTPException(status_code=404, detail="Request not found")
 
+    # Validate kind
+    if kind not in ("before", "after", "other"):
+        kind = "other"
+
     content = await file.read()
     if len(content) > 5 * 1024 * 1024:
         raise HTTPException(status_code=413, detail="File too large (max 5 MB)")
 
+    # `kind` (before/after/other) is supplied via query parameter, not inferred from extension.
+    # The extension is only used to preserve the original file type in the stored filename.
     ext = os.path.splitext(file.filename or "")[1].lower()
-    kind = "photo" if ext in (".jpg", ".jpeg", ".png", ".gif", ".webp") else "document"
     filename = f"{uuid.uuid4()}{ext}"
     os.makedirs(settings.upload_dir, exist_ok=True)
     file_path = os.path.join(settings.upload_dir, filename)
@@ -570,7 +576,8 @@ async def upload_attachment(
         file_name=file.filename or filename,
     )
     db.add(attachment)
-    _log(db, current_user.id, "upload_attachment", "service_request", req.id, filename)
+    _log(db, current_user.id, "upload_attachment", "service_request", req.id,
+         f"{filename} (kind={kind})")
     db.commit()
     db.refresh(attachment)
     return attachment
