@@ -91,12 +91,22 @@ class User(Base):
     audit_logs = relationship("AuditLog", back_populates="actor")
 
 
+RESPONSIBLE_TEAMS = (
+    "electricity",
+    "water",
+    "gas",
+    "maintenance",
+    "sanitation",
+)
+
+
 class ServiceRequest(Base):
     __tablename__ = "service_requests"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     municipality_id = Column(UUID(as_uuid=True), ForeignKey("municipalities.id"), nullable=False)
     district_id = Column(UUID(as_uuid=True), ForeignKey("districts.id"), nullable=False)
+    complaint_number = Column(String(50), nullable=True, unique=True, index=True)
     category = Column(
         Enum("lighting", "water", "waste", "roads", "other", name="request_category"),
         nullable=False,
@@ -112,6 +122,7 @@ class ServiceRequest(Base):
         nullable=False,
         default="new",
     )
+    responsible_team = Column(String(50), nullable=True)
     description = Column(Text, nullable=False)
     tracking_code = Column(String(16), nullable=False, unique=True, index=True)
     location_lat = Column(Float, nullable=True)
@@ -139,6 +150,7 @@ class ServiceRequest(Base):
     updates = relationship("RequestUpdate", back_populates="request", cascade="all, delete-orphan")
     assignments = relationship("Assignment", back_populates="request", cascade="all, delete-orphan")
     attachments = relationship("Attachment", back_populates="request", cascade="all, delete-orphan")
+    materials_used = relationship("MaterialUsed", back_populates="request", cascade="all, delete-orphan")
 
 
 class RequestUpdate(Base):
@@ -202,6 +214,19 @@ class Attachment(Base):
     created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
 
     request = relationship("ServiceRequest", back_populates="attachments")
+
+
+class MaterialUsed(Base):
+    __tablename__ = "materials_used"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    request_id = Column(UUID(as_uuid=True), ForeignKey("service_requests.id"), nullable=False)
+    name = Column(String(255), nullable=False)
+    quantity = Column(String(100), nullable=False)
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+    request = relationship("ServiceRequest", back_populates="materials_used")
 
 
 class AuditLog(Base):

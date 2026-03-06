@@ -725,6 +725,7 @@ function RequestsView({ user }: { user: User }) {
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead>رقم الشكوى</TableHead>
                   <TableHead>رمز التتبع</TableHead>
                   <TableHead>الأولوية</TableHead>
                   <TableHead>الفئة</TableHead>
@@ -738,7 +739,7 @@ function RequestsView({ user }: { user: User }) {
                 {requests.length === 0 ? (
                   <TableRow>
                     <TableCell
-                      colSpan={(isGovernor || isMayor) ? 7 : 6}
+                      colSpan={(isGovernor || isMayor) ? 8 : 7}
                       className="text-center text-muted-foreground py-8"
                     >
                       لا توجد طلبات
@@ -757,6 +758,9 @@ function RequestsView({ user }: { user: User }) {
                         }`}
                         onClick={() => { setSelectedRequest(request); setDialogOpen(true) }}
                       >
+                        <TableCell className="font-mono text-xs text-muted-foreground">
+                          {request.complaintNumber ?? '—'}
+                        </TableCell>
                         <TableCell className="font-mono font-semibold">
                           {request.trackingCode}
                           {isOverdue(request) && (

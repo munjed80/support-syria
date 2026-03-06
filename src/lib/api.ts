@@ -17,7 +17,7 @@
  *   await api.updateStatus(id, { status: 'received' })
  */
 
-import type { ServiceRequest, RequestUpdate, District, Municipality, User, UserRole } from '@/lib/types'
+import type { ServiceRequest, RequestUpdate, District, Municipality, User, UserRole, MaterialUsed } from '@/lib/types'
 
 const BASE_URL = (import.meta as any).env?.VITE_API_URL ?? 'http://localhost:8000'
 
@@ -63,9 +63,11 @@ export interface ServiceRequestOut {
   id: string
   municipality_id: string
   district_id: string
+  complaint_number?: string
   category: string
   priority: string
   status: string
+  responsible_team?: string
   description: string
   tracking_code: string
   location_lat?: number
@@ -102,6 +104,16 @@ export interface RequestUpdateOut {
 
 export interface ServiceRequestDetail extends ServiceRequestOut {
   updates: RequestUpdateOut[]
+  materials_used?: MaterialUsedOut[]
+}
+
+export interface MaterialUsedOut {
+  id: string
+  request_id: string
+  name: string
+  quantity: string
+  notes?: string
+  created_at: string
 }
 
 export interface AttachmentOut {
@@ -161,9 +173,11 @@ export function toServiceRequest(r: ServiceRequestOut): ServiceRequest {
     id: String(r.id),
     municipalityId: String(r.municipality_id),
     districtId: String(r.district_id),
+    complaintNumber: r.complaint_number ?? undefined,
     category: r.category as any,
     priority: r.priority as any,
     status: r.status as any,
+    responsibleTeam: r.responsible_team ?? undefined,
     description: r.description,
     trackingCode: r.tracking_code,
     locationLat: r.location_lat ?? undefined,
@@ -181,6 +195,17 @@ export function toServiceRequest(r: ServiceRequestOut): ServiceRequest {
     createdAt: r.created_at,
     updatedAt: r.updated_at,
     closedAt: r.closed_at ?? undefined,
+  }
+}
+
+export function toMaterialUsed(m: MaterialUsedOut): MaterialUsed {
+  return {
+    id: String(m.id),
+    requestId: String(m.request_id),
+    name: m.name,
+    quantity: m.quantity,
+    notes: m.notes ?? undefined,
+    createdAt: m.created_at,
   }
 }
 
@@ -465,6 +490,30 @@ class ApiClient {
       throw new Error(body?.detail ?? `HTTP ${res.status}`)
     }
     return res.json()
+  }
+
+  async updateResponsibleTeam(requestId: string, responsibleTeam: string | null): Promise<ServiceRequestOut> {
+    return this.request<ServiceRequestOut>(`/admin/requests/${requestId}/responsible-team`, {
+      method: 'POST',
+      body: JSON.stringify({ responsible_team: responsibleTeam }),
+    })
+  }
+
+  async getMaterials(requestId: string): Promise<MaterialUsedOut[]> {
+    return this.request<MaterialUsedOut[]>(`/admin/requests/${requestId}/materials`)
+  }
+
+  async addMaterial(requestId: string, payload: { name: string; quantity: string; notes?: string }): Promise<MaterialUsedOut> {
+    return this.request<MaterialUsedOut>(`/admin/requests/${requestId}/materials`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
+  }
+
+  async deleteMaterial(requestId: string, materialId: string): Promise<void> {
+    return this.request<void>(`/admin/requests/${requestId}/materials/${materialId}`, {
+      method: 'DELETE',
+    })
   }
 }
 
