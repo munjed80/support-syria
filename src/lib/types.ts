@@ -28,13 +28,13 @@ export interface District {
 
 export interface User {
   id: string
-  email: string
-  passwordHash: string
+  username: string
+  fullName: string
   role: UserRole
   governorateId?: string
   municipalityId?: string
   districtId?: string
-  name: string
+  isActive: boolean
 }
 
 export interface ServiceRequest {

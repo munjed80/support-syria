@@ -30,12 +30,13 @@ export interface TokenResponse {
 
 export interface UserOut {
   id: string
-  email: string
+  username: string
+  full_name: string
   role: string
   governorate_id?: string
   municipality_id?: string
   district_id?: string
-  name: string
+  is_active: boolean
 }
 
 export interface GovernorateOut {
@@ -212,13 +213,13 @@ export function toDistrict(d: DistrictOut): District {
 export function toUser(u: UserOut): User {
   return {
     id: String(u.id),
-    email: u.email,
-    passwordHash: '',
+    username: u.username,
+    fullName: u.full_name,
     role: u.role as UserRole,
     governorateId: u.governorate_id ? String(u.governorate_id) : undefined,
     municipalityId: u.municipality_id ? String(u.municipality_id) : undefined,
     districtId: u.district_id ? String(u.district_id) : undefined,
-    name: u.name,
+    isActive: u.is_active,
   }
 }
 
@@ -263,10 +264,10 @@ class ApiClient {
 
   // ── Auth ──────────────────────────────────────────────────────────────────
 
-  async login(email: string, password: string): Promise<TokenResponse> {
+  async login(username: string, password: string): Promise<TokenResponse> {
     return this.request<TokenResponse>('/auth/login', {
       method: 'POST',
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({ username, password }),
     })
   }
 
@@ -383,6 +384,30 @@ class ApiClient {
   async getStaff(districtId?: string): Promise<UserOut[]> {
     const qs = districtId ? `?district_id=${encodeURIComponent(districtId)}` : ''
     return this.request<UserOut[]>(`/admin/staff${qs}`)
+  }
+
+  async createMayor(payload: {
+    full_name: string
+    username: string
+    password: string
+    municipality_id: string
+  }): Promise<UserOut> {
+    return this.request<UserOut>('/admin/users/mayors', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
+  }
+
+  async createMukhtar(payload: {
+    full_name: string
+    username: string
+    password: string
+    district_id: string
+  }): Promise<UserOut> {
+    return this.request<UserOut>('/admin/users/mukhtars', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
   }
 
   async assignStaff(requestId: string, staffUserId: string): Promise<ServiceRequestOut> {

@@ -12,10 +12,13 @@ from app.config import get_settings
 from app.database import get_db
 from app.deps import get_current_user, require_roles, require_district_scope, require_municipality_scope
 from app.models import Attachment, AuditLog, District, Governorate, Municipality, RequestUpdate, ServiceRequest, User
+from app.auth import hash_password
 from app.schemas import (
     AdminServiceRequestCreate,
     AssignStaffRequest,
     AttachmentOut,
+    CreateMayorRequest,
+    CreateMukhtarRequest,
     DistrictCreate,
     DistrictOut,
     DistrictUpdate,
@@ -597,4 +600,85 @@ def list_staff(
         q = q.filter(User.district_id == current_user.district_id)
     elif current_user.role in ("municipal_admin", "mayor"):
         q = q.filter(User.municipality_id == current_user.municipality_id)
-    return q.order_by(User.name).all()
+    return q.order_by(User.full_name).all()
+
+
+# ─── User management (hierarchical) ──────────────────────────────────────────
+
+@router.post("/users/mayors", response_model=UserOut, status_code=201)
+def create_mayor(
+    payload: CreateMayorRequest,
+    current_user: User = Depends(require_roles("governor")),
+    db: Session = Depends(get_db),
+):
+    """Governor creates a Mayor account scoped to a municipality within their governorate."""
+    mun = db.query(Municipality).filter(
+        Municipality.id == payload.municipality_id,
+        Municipality.governorate_id == current_user.governorate_id,
+    ).first()
+    if not mun:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="البلدية غير موجودة أو لا تنتمي إلى محافظتك",
+        )
+    if db.query(User).filter(User.username == payload.username).first():
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="اسم المستخدم مستخدم بالفعل",
+        )
+    new_user = User(
+        username=payload.username,
+        full_name=payload.full_name,
+        password_hash=hash_password(payload.password),
+        role="mayor",
+        municipality_id=payload.municipality_id,
+        is_active=True,
+        must_change_password=True,
+        created_by_user_id=current_user.id,
+    )
+    db.add(new_user)
+    db.flush()
+    _log(db, current_user.id, "create_mayor", "user", str(new_user.id), payload.username)
+    db.commit()
+    db.refresh(new_user)
+    return new_user
+
+
+@router.post("/users/mukhtars", response_model=UserOut, status_code=201)
+def create_mukhtar(
+    payload: CreateMukhtarRequest,
+    current_user: User = Depends(require_roles("mayor")),
+    db: Session = Depends(get_db),
+):
+    """Mayor creates a Mukhtar account scoped to a district within their municipality."""
+    district = db.query(District).filter(
+        District.id == payload.district_id,
+        District.municipality_id == current_user.municipality_id,
+    ).first()
+    if not district:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="الحي غير موجود أو لا ينتمي إلى بلديتك",
+        )
+    if db.query(User).filter(User.username == payload.username).first():
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="اسم المستخدم مستخدم بالفعل",
+        )
+    new_user = User(
+        username=payload.username,
+        full_name=payload.full_name,
+        password_hash=hash_password(payload.password),
+        role="mukhtar",
+        municipality_id=current_user.municipality_id,
+        district_id=payload.district_id,
+        is_active=True,
+        must_change_password=True,
+        created_by_user_id=current_user.id,
+    )
+    db.add(new_user)
+    db.flush()
+    _log(db, current_user.id, "create_mukhtar", "user", str(new_user.id), payload.username)
+    db.commit()
+    db.refresh(new_user)
+    return new_user

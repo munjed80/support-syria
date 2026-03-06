@@ -61,7 +61,7 @@ export function RequestDetailsDialog({ request, open, onOpenChange, currentUser,
 
       if (currentUser.role === 'district_admin' || currentUser.role === 'municipal_admin') {
         api.getStaff(request.districtId)
-          .then((list) => setStaffMembers(list.map(u => ({ id: String(u.id), name: u.name }))))
+          .then((list) => setStaffMembers(list.map(u => ({ id: String(u.id), name: u.full_name }))))
           .catch(() => {})
       }
     }
