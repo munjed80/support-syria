@@ -399,7 +399,9 @@ export function RequestDetailsDialog({ request, open, onOpenChange, currentUser,
                       <span>{m.quantity}</span>
                       {m.notes && <span className="text-muted-foreground mr-2">({m.notes})</span>}
                     </span>
-                    {(currentUser.role !== 'staff') && (
+                    {(currentUser.role === 'mayor' || currentUser.role === 'governor' ||
+                      currentUser.role === 'mukhtar' || currentUser.role === 'district_admin' ||
+                      currentUser.role === 'municipal_admin') && (
                       <Button
                         variant="ghost"
                         size="sm"

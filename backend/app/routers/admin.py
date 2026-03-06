@@ -72,14 +72,13 @@ def _log(db: Session, actor_id, action: str, entity_type: str, entity_id: str, d
     db.add(entry)
 
 
-def _make_code(name: str, length: int = 3) -> str:
+def _extract_name_code(name: str, length: int = 3) -> str:
     """Extract up to `length` uppercase ASCII letters from name."""
     import re
-    letters = re.sub(r"[^A-Za-z\u0600-\u06FF]", "", name)
-    ascii_only = re.sub(r"[^\x00-\x7F]", "", letters)
+    ascii_only = re.sub(r"[^A-Za-z]", "", name)
     if ascii_only:
         return ascii_only[:length].upper()
-    # Fall back to sequential digits from name words
+    # Fall back to first letter of each word
     words = name.split()
     result = ""
     for word in words:
@@ -92,14 +91,13 @@ def _make_code(name: str, length: int = 3) -> str:
 
 def _generate_complaint_number(db: Session, district: District) -> str:
     """Generate a unique complaint number: MUN_CODE-DIST_CODE-YEAR-SEQ."""
-    import re
     from datetime import date
 
     mun_name = district.municipality.name if district.municipality else "MUN"
     dist_name = district.name
 
-    mun_code = _make_code(mun_name, 3)
-    dist_code = _make_code(dist_name, 3)
+    mun_code = _extract_name_code(mun_name, 3)
+    dist_code = _extract_name_code(dist_name, 3)
     year = date.today().year
 
     # Count existing complaints for this district this year
@@ -118,8 +116,12 @@ def _generate_complaint_number(db: Session, district: District) -> str:
         ).first():
             return candidate
 
-    # Ultimate fallback: append random suffix
+    # Ultimate fallback: append random suffix (should not happen in normal operation)
+    import logging
     import secrets
+    logging.getLogger(__name__).warning(
+        "Complaint number generation required random fallback for prefix=%s seq=%d", prefix, seq
+    )
     return f"{prefix}{seq:06d}-{secrets.token_hex(3).upper()}"
 
 
