@@ -26,11 +26,13 @@ from app.schemas import (
     InternalNoteRequest,
     MaterialUsedCreate,
     MaterialUsedOut,
+    MonthlyReport,
     MunicipalityCreate,
     MunicipalityOut,
     MunicipalityUpdate,
     PaginatedRequests,
     PriorityUpdateRequest,
+    ReportCountEntry,
     ResponsibleTeamUpdateRequest,
     ServiceRequestDetail,
     ServiceRequestOut,
@@ -1014,3 +1016,223 @@ def create_mukhtar(
     db.commit()
     db.refresh(new_user)
     return new_user
+
+
+# ─── Monthly Reports ──────────────────────────────────────────────────────────
+
+def _month_range(year: int, month: int):
+    """Return (start_dt, end_exclusive_dt) UTC datetimes bracketing the given month."""
+    start = datetime(year, month, 1, 0, 0, 0, tzinfo=timezone.utc)
+    if month == 12:
+        end_exclusive = datetime(year + 1, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
+    else:
+        end_exclusive = datetime(year, month + 1, 1, 0, 0, 0, tzinfo=timezone.utc)
+    return start, end_exclusive
+
+
+def _build_report(
+    db: Session,
+    base_q,
+    month: int,
+    year: int,
+    top_district_query=None,
+) -> MonthlyReport:
+    """Compute monthly report stats from a scoped base query."""
+    now = datetime.now(timezone.utc)
+    start, end_exclusive = _month_range(year, month)
+
+    q = base_q.filter(
+        ServiceRequest.created_at >= start,
+        ServiceRequest.created_at < end_exclusive,
+    )
+
+    total = q.count()
+    open_count = q.filter(
+        ServiceRequest.status.in_(["new", "under_review"])
+    ).count()
+    in_progress = q.filter(ServiceRequest.status == "in_progress").count()
+    resolved = q.filter(ServiceRequest.status == "resolved").count()
+    urgent = q.filter(ServiceRequest.priority == "urgent").count()
+    overdue = q.filter(
+        ServiceRequest.closed_at.is_(None),
+        ServiceRequest.sla_deadline < now,
+    ).count()
+
+    by_category_rows = (
+        q
+        .with_entities(ServiceRequest.category, func.count(ServiceRequest.id).label("cnt"))
+        .group_by(ServiceRequest.category)
+        .order_by(func.count(ServiceRequest.id).desc())
+        .all()
+    )
+    by_status_rows = (
+        q
+        .with_entities(ServiceRequest.status, func.count(ServiceRequest.id).label("cnt"))
+        .group_by(ServiceRequest.status)
+        .order_by(func.count(ServiceRequest.id).desc())
+        .all()
+    )
+    team_result = (
+        q
+        .filter(ServiceRequest.responsible_team.isnot(None))
+        .with_entities(ServiceRequest.responsible_team, func.count(ServiceRequest.id).label("cnt"))
+        .group_by(ServiceRequest.responsible_team)
+        .order_by(func.count(ServiceRequest.id).desc())
+        .first()
+    )
+
+    most_common_category = by_category_rows[0][0] if by_category_rows else None
+    most_assigned_team = team_result[0] if team_result else None
+
+    top_district = None
+    if top_district_query is not None:
+        top_district_row = top_district_query(start, end_exclusive)
+        top_district = top_district_row[0] if top_district_row else None
+
+    return MonthlyReport(
+        period={"month": month, "year": year},
+        total=total,
+        open=open_count,
+        in_progress=in_progress,
+        resolved=resolved,
+        urgent=urgent,
+        overdue=overdue,
+        most_common_category=most_common_category,
+        most_assigned_team=most_assigned_team,
+        top_district=top_district,
+        by_category=[ReportCountEntry(name=r[0], count=r[1]) for r in by_category_rows],
+        by_status=[ReportCountEntry(name=r[0], count=r[1]) for r in by_status_rows],
+    )
+
+
+@router.get("/reports/district", response_model=MonthlyReport)
+def district_monthly_report(
+    month: int = Query(..., ge=1, le=12),
+    year: int = Query(..., ge=2000, le=2100),
+    district_id: Optional[UUID] = Query(None),
+    current_user: User = Depends(require_roles("mukhtar", "district_admin", "mayor", "municipal_admin", "governor")),
+    db: Session = Depends(get_db),
+):
+    """Return monthly report for a specific district."""
+    now_year = datetime.now(timezone.utc).year
+    if year > now_year + 1:
+        raise HTTPException(status_code=422, detail="السنة المحددة غير صالحة")
+
+    if current_user.role in ("mukhtar", "district_admin"):
+        # Mukhtar: always their own district
+        target_district_id = current_user.district_id
+    elif current_user.role in ("mayor", "municipal_admin"):
+        if district_id is None:
+            raise HTTPException(status_code=422, detail="يجب تحديد الحي")
+        district = db.query(District).filter(
+            District.id == district_id,
+            District.municipality_id == current_user.municipality_id,
+        ).first()
+        if not district:
+            raise HTTPException(status_code=404, detail="الحي غير موجود أو لا ينتمي إلى بلديتك")
+        target_district_id = district_id
+    else:
+        # Governor
+        if district_id is None:
+            raise HTTPException(status_code=422, detail="يجب تحديد الحي")
+        from sqlalchemy import select as sa_select
+        mun_subq = sa_select(Municipality.id).where(
+            Municipality.governorate_id == current_user.governorate_id
+        )
+        district = db.query(District).filter(
+            District.id == district_id,
+            District.municipality_id.in_(mun_subq),
+        ).first()
+        if not district:
+            raise HTTPException(status_code=404, detail="الحي غير موجود أو لا ينتمي إلى محافظتك")
+        target_district_id = district_id
+
+    base_q = db.query(ServiceRequest).filter(
+        ServiceRequest.district_id == target_district_id
+    )
+    return _build_report(db, base_q, month, year)
+
+
+@router.get("/reports/municipality", response_model=MonthlyReport)
+def municipality_monthly_report(
+    month: int = Query(..., ge=1, le=12),
+    year: int = Query(..., ge=2000, le=2100),
+    municipality_id: Optional[UUID] = Query(None),
+    current_user: User = Depends(require_roles("mayor", "municipal_admin", "governor")),
+    db: Session = Depends(get_db),
+):
+    """Return monthly report for a specific municipality."""
+    now_year = datetime.now(timezone.utc).year
+    if year > now_year + 1:
+        raise HTTPException(status_code=422, detail="السنة المحددة غير صالحة")
+
+    if current_user.role in ("mayor", "municipal_admin"):
+        target_municipality_id = current_user.municipality_id
+    else:
+        # Governor
+        if municipality_id is None:
+            raise HTTPException(status_code=422, detail="يجب تحديد البلدية")
+        mun = db.query(Municipality).filter(
+            Municipality.id == municipality_id,
+            Municipality.governorate_id == current_user.governorate_id,
+        ).first()
+        if not mun:
+            raise HTTPException(status_code=404, detail="البلدية غير موجودة أو لا تنتمي إلى محافظتك")
+        target_municipality_id = municipality_id
+
+    base_q = db.query(ServiceRequest).filter(
+        ServiceRequest.municipality_id == target_municipality_id
+    )
+
+    def top_district_fn(start, end_exclusive):
+        return (
+            db.query(District.name, func.count(ServiceRequest.id).label("cnt"))
+            .join(ServiceRequest, ServiceRequest.district_id == District.id)
+            .filter(
+                ServiceRequest.municipality_id == target_municipality_id,
+                ServiceRequest.created_at >= start,
+                ServiceRequest.created_at < end_exclusive,
+            )
+            .group_by(District.name)
+            .order_by(func.count(ServiceRequest.id).desc())
+            .first()
+        )
+
+    return _build_report(db, base_q, month, year, top_district_query=top_district_fn)
+
+
+@router.get("/reports/governorate", response_model=MonthlyReport)
+def governorate_monthly_report(
+    month: int = Query(..., ge=1, le=12),
+    year: int = Query(..., ge=2000, le=2100),
+    current_user: User = Depends(require_roles("governor")),
+    db: Session = Depends(get_db),
+):
+    """Return monthly report for the entire governorate."""
+    now_year = datetime.now(timezone.utc).year
+    if year > now_year + 1:
+        raise HTTPException(status_code=422, detail="السنة المحددة غير صالحة")
+
+    from sqlalchemy import select as sa_select
+    mun_subq = sa_select(Municipality.id).where(
+        Municipality.governorate_id == current_user.governorate_id
+    )
+    base_q = db.query(ServiceRequest).filter(
+        ServiceRequest.municipality_id.in_(mun_subq)
+    )
+
+    def top_district_fn(start, end_exclusive):
+        return (
+            db.query(District.name, func.count(ServiceRequest.id).label("cnt"))
+            .join(ServiceRequest, ServiceRequest.district_id == District.id)
+            .filter(
+                ServiceRequest.municipality_id.in_(mun_subq),
+                ServiceRequest.created_at >= start,
+                ServiceRequest.created_at < end_exclusive,
+            )
+            .group_by(District.name)
+            .order_by(func.count(ServiceRequest.id).desc())
+            .first()
+        )
+
+    return _build_report(db, base_q, month, year, top_district_query=top_district_fn)

@@ -265,3 +265,30 @@ class MaterialUsedCreate(BaseModel):
     name: str
     quantity: str
     notes: Optional[str] = None
+
+
+# ─── Monthly Reports ──────────────────────────────────────────────────────────
+
+class ReportCountEntry(BaseModel):
+    name: str
+    count: int
+
+
+class MonthlyReportPeriod(BaseModel):
+    month: int
+    year: int
+
+
+class MonthlyReport(BaseModel):
+    period: MonthlyReportPeriod
+    total: int
+    open: int
+    in_progress: int
+    resolved: int
+    urgent: int
+    overdue: int
+    most_common_category: Optional[str] = None
+    most_assigned_team: Optional[str] = None
+    top_district: Optional[str] = None
+    by_category: list[ReportCountEntry] = []
+    by_status: list[ReportCountEntry] = []
