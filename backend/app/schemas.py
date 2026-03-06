@@ -134,9 +134,11 @@ class ServiceRequestOut(BaseModel):
     id: UUID
     municipality_id: UUID
     district_id: UUID
+    complaint_number: Optional[str] = None
     category: str
     priority: str
     status: str
+    responsible_team: Optional[str] = None
     description: str
     tracking_code: str
     location_lat: Optional[float] = None
@@ -162,6 +164,7 @@ class ServiceRequestOut(BaseModel):
 class ServiceRequestDetail(ServiceRequestOut):
     updates: list[RequestUpdateOut] = []
     attachments: list[AttachmentOut] = []
+    materials_used: list["MaterialUsedOut"] = []
 
     class Config:
         from_attributes = True
@@ -236,3 +239,29 @@ class CreateMukhtarRequest(BaseModel):
     username: str
     password: str
     district_id: UUID
+
+
+# ─── Responsible Team ─────────────────────────────────────────────────────────
+
+class ResponsibleTeamUpdateRequest(BaseModel):
+    responsible_team: Optional[str] = None
+
+
+# ─── Materials Used ───────────────────────────────────────────────────────────
+
+class MaterialUsedOut(BaseModel):
+    id: UUID
+    request_id: UUID
+    name: str
+    quantity: str
+    notes: Optional[str] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class MaterialUsedCreate(BaseModel):
+    name: str
+    quantity: str
+    notes: Optional[str] = None

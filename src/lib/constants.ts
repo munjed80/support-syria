@@ -28,10 +28,10 @@ export const ROLES: Record<UserRole, string> = {
 }
 
 export const PRIORITIES: Record<Priority, string> = {
-  low: 'منخفض',
-  normal: 'عادي',
-  high: 'مرتفع',
-  urgent: 'عاجل'
+  low: 'منخفضة',
+  normal: 'عادية',
+  high: 'عالية',
+  urgent: 'عاجلة'
 }
 
 export const STATUS_COLORS: Record<RequestStatus, string> = {
@@ -62,6 +62,14 @@ export const PRIORITY_ORDER: Record<Priority, number> = {
   high: 1,
   normal: 2,
   low: 3
+}
+
+export const RESPONSIBLE_TEAMS: Record<string, string> = {
+  electricity: 'فريق الكهرباء',
+  water: 'فريق المياه',
+  gas: 'فريق الغاز',
+  maintenance: 'فريق الصيانة',
+  sanitation: 'فريق النظافة',
 }
 
 export const CATEGORY_PRIORITY_SLA: Record<

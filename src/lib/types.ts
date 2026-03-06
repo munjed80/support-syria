@@ -41,9 +41,11 @@ export interface ServiceRequest {
   id: string
   municipalityId: string
   districtId: string
+  complaintNumber?: string
   category: RequestCategory
   priority: Priority
   status: RequestStatus
+  responsibleTeam?: string
   description: string
   trackingCode: string
   locationLat?: number
@@ -61,6 +63,15 @@ export interface ServiceRequest {
   createdAt: string
   updatedAt: string
   closedAt?: string
+}
+
+export interface MaterialUsed {
+  id: string
+  requestId: string
+  name: string
+  quantity: string
+  notes?: string
+  createdAt: string
 }
 
 export interface RequestUpdate {

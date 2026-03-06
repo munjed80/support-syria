@@ -59,6 +59,17 @@ def submit_request(
     else:
         raise HTTPException(status_code=500, detail="Could not generate unique tracking code")
 
+    # Eagerly load municipality for complaint number generation
+    from sqlalchemy.orm import joinedload
+    from app.routers.admin import _generate_complaint_number
+    district = (
+        db.query(District)
+        .options(joinedload(District.municipality))
+        .filter(District.id == payload.district_id)
+        .first()
+    )
+    complaint_number = _generate_complaint_number(db, district)
+
     now = datetime.now(timezone.utc)
     sla_deadline = get_sla_deadline(now, payload.category, "normal")
     sla_status = calculate_sla_status(now, payload.category, "normal", "new",
@@ -67,6 +78,7 @@ def submit_request(
     new_req = ServiceRequest(
         municipality_id=district.municipality_id,
         district_id=district.id,
+        complaint_number=complaint_number,
         category=payload.category,
         priority="normal",
         status="new",

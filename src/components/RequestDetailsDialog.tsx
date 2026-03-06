@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { api, toRequestUpdate, toServiceRequest } from '@/lib/api'
+import { api, toRequestUpdate, toServiceRequest, toMaterialUsed, MaterialUsedOut } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
@@ -9,19 +9,20 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { toast } from 'sonner'
-import { MapPin, Clock, User as UserIcon, CheckCircle, XCircle, CircleNotch, Warning } from '@phosphor-icons/react'
+import { MapPin, Clock, User as UserIcon, CheckCircle, XCircle, CircleNotch, Warning, Trash } from '@phosphor-icons/react'
 import {
   CATEGORIES,
   STATUSES,
   STATUS_COLORS,
   PRIORITIES,
   PRIORITY_BADGE_COLORS,
+  RESPONSIBLE_TEAMS,
   formatDate,
   formatRelativeTime,
   getValidNextStatuses,
   canTransitionTo,
 } from '@/lib/constants'
-import type { ServiceRequest, RequestUpdate, User, District, RequestStatus, Priority } from '@/lib/types'
+import type { ServiceRequest, RequestUpdate, User, District, RequestStatus, Priority, MaterialUsed } from '@/lib/types'
 
 interface RequestDetailsDialogProps {
   request: ServiceRequest | null
@@ -39,12 +40,20 @@ export function RequestDetailsDialog({ request, open, onOpenChange, currentUser,
 
   const [newStatus, setNewStatus] = useState<string>('')
   const [newPriority, setNewPriority] = useState<string>('')
+  const [newResponsibleTeam, setNewResponsibleTeam] = useState<string>('')
   const [internalNote, setInternalNote] = useState('')
   const [rejectionReason, setRejectionReason] = useState('')
   const [completionPhotoFile, setCompletionPhotoFile] = useState<File | null>(null)
   const [completionPhotoPreview, setCompletionPhotoPreview] = useState<string>('')
   const [assignedUserId, setAssignedUserId] = useState<string>('')
   const [saving, setSaving] = useState(false)
+
+  // Materials used state
+  const [materials, setMaterials] = useState<MaterialUsed[]>([])
+  const [newMatName, setNewMatName] = useState('')
+  const [newMatQty, setNewMatQty] = useState('')
+  const [newMatNotes, setNewMatNotes] = useState('')
+  const [addingMaterial, setAddingMaterial] = useState(false)
 
   // Fetch full request details and staff list when dialog opens
   useEffect(() => {
@@ -57,6 +66,7 @@ export function RequestDetailsDialog({ request, open, onOpenChange, currentUser,
               .map(toRequestUpdate)
               .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
           )
+          setMaterials((detail.materials_used ?? []).map(toMaterialUsed))
         })
         .catch(() => {})
 
@@ -70,6 +80,7 @@ export function RequestDetailsDialog({ request, open, onOpenChange, currentUser,
       // Reset form state when dialog closes
       setNewStatus('')
       setNewPriority('')
+      setNewResponsibleTeam('')
       setInternalNote('')
       setRejectionReason('')
       setCompletionPhotoFile(null)
@@ -81,6 +92,10 @@ export function RequestDetailsDialog({ request, open, onOpenChange, currentUser,
       setAssignedUserId('')
       setLiveRequest(null)
       setRequestUpdates([])
+      setMaterials([])
+      setNewMatName('')
+      setNewMatQty('')
+      setNewMatNotes('')
     }
   }, [open, request, currentUser.role])
 
@@ -219,6 +234,58 @@ export function RequestDetailsDialog({ request, open, onOpenChange, currentUser,
     }
   }
 
+  const handleResponsibleTeamChange = async () => {
+    setSaving(true)
+    try {
+      const updated = await api.updateResponsibleTeam(
+        displayRequest.id,
+        newResponsibleTeam || null,
+      )
+      setLiveRequest(toServiceRequest(updated))
+      toast.success('تم تحديث الفريق المسؤول')
+      setNewResponsibleTeam('')
+      onUpdate?.()
+    } catch (error: any) {
+      toast.error(error?.message || 'حدث خطأ أثناء تحديث الفريق')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleAddMaterial = async () => {
+    if (!newMatName.trim() || !newMatQty.trim()) {
+      toast.error('يرجى إدخال اسم المادة والكمية')
+      return
+    }
+    setAddingMaterial(true)
+    try {
+      const created = await api.addMaterial(displayRequest.id, {
+        name: newMatName.trim(),
+        quantity: newMatQty.trim(),
+        notes: newMatNotes.trim() || undefined,
+      })
+      setMaterials((prev) => [...prev, toMaterialUsed(created)])
+      setNewMatName('')
+      setNewMatQty('')
+      setNewMatNotes('')
+      toast.success('تمت إضافة المادة')
+    } catch (error: any) {
+      toast.error(error?.message || 'حدث خطأ أثناء إضافة المادة')
+    } finally {
+      setAddingMaterial(false)
+    }
+  }
+
+  const handleDeleteMaterial = async (materialId: string) => {
+    try {
+      await api.deleteMaterial(displayRequest.id, materialId)
+      setMaterials((prev) => prev.filter((m) => m.id !== materialId))
+      toast.success('تم حذف المادة')
+    } catch (error: any) {
+      toast.error(error?.message || 'حدث خطأ أثناء الحذف')
+    }
+  }
+
   const getStatusIcon = (status: string) => {
     switch (status) {
       case 'new': return <CircleNotch className="animate-spin" />
@@ -253,6 +320,11 @@ export function RequestDetailsDialog({ request, open, onOpenChange, currentUser,
               </div>
               <DialogDescription>
                 رمز التتبع: <span className="font-mono text-base">{displayRequest.trackingCode}</span>
+                {displayRequest.complaintNumber && (
+                  <span className="mr-4 font-mono text-base text-foreground">
+                    رقم الشكوى: {displayRequest.complaintNumber}
+                  </span>
+                )}
               </DialogDescription>
             </div>
           </div>
@@ -308,6 +380,43 @@ export function RequestDetailsDialog({ request, open, onOpenChange, currentUser,
             </div>
           )}
 
+          {displayRequest.responsibleTeam && (
+            <div>
+              <h4 className="font-semibold text-sm text-muted-foreground mb-1">الفريق المسؤول</h4>
+              <Badge variant="outline">{RESPONSIBLE_TEAMS[displayRequest.responsibleTeam] ?? displayRequest.responsibleTeam}</Badge>
+            </div>
+          )}
+
+          {materials.length > 0 && (
+            <div>
+              <h4 className="font-semibold text-sm text-muted-foreground mb-2">المواد المستخدمة</h4>
+              <div className="space-y-1">
+                {materials.map((m) => (
+                  <div key={m.id} className="flex items-center justify-between text-sm border rounded px-3 py-2">
+                    <span>
+                      <span className="font-medium">{m.name}</span>
+                      <span className="text-muted-foreground mx-2">—</span>
+                      <span>{m.quantity}</span>
+                      {m.notes && <span className="text-muted-foreground mr-2">({m.notes})</span>}
+                    </span>
+                    {(currentUser.role === 'mayor' || currentUser.role === 'governor' ||
+                      currentUser.role === 'mukhtar' || currentUser.role === 'district_admin' ||
+                      currentUser.role === 'municipal_admin') && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 w-6 p-0 text-destructive hover:text-destructive"
+                        onClick={() => handleDeleteMaterial(m.id)}
+                      >
+                        <Trash size={14} />
+                      </Button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           <Separator />
 
           {(currentUser.role === 'district_admin' || currentUser.role === 'municipal_admin' ||
@@ -333,6 +442,67 @@ export function RequestDetailsDialog({ request, open, onOpenChange, currentUser,
                   </Select>
                   <Button onClick={handlePriorityChange} disabled={saving || !newPriority}>
                     تحديث
+                  </Button>
+                </div>
+              </div>
+
+              {(currentUser.role === 'mayor' || currentUser.role === 'governor') && (
+                <div className="space-y-2">
+                  <Label>الفريق المسؤول</Label>
+                  <div className="flex gap-2">
+                    <Select value={newResponsibleTeam} onValueChange={setNewResponsibleTeam}>
+                      <SelectTrigger className="flex-1">
+                        <SelectValue placeholder={
+                          displayRequest.responsibleTeam
+                            ? `الفريق الحالي: ${RESPONSIBLE_TEAMS[displayRequest.responsibleTeam] ?? displayRequest.responsibleTeam}`
+                            : 'اختر الفريق المسؤول'
+                        } />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {Object.entries(RESPONSIBLE_TEAMS).map(([key, label]) => (
+                          <SelectItem key={key} value={key}>
+                            {label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Button onClick={handleResponsibleTeamChange} disabled={saving || !newResponsibleTeam}>
+                      تعيين
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              <div className="space-y-2">
+                <Label>إضافة مادة مستخدمة</Label>
+                <div className="grid grid-cols-2 gap-2">
+                  <Input
+                    placeholder="اسم المادة (مثال: كابل كهرباء)"
+                    value={newMatName}
+                    onChange={(e) => setNewMatName(e.target.value)}
+                    dir="rtl"
+                  />
+                  <Input
+                    placeholder="الكمية (مثال: 15 متر)"
+                    value={newMatQty}
+                    onChange={(e) => setNewMatQty(e.target.value)}
+                    dir="rtl"
+                  />
+                </div>
+                <div className="flex gap-2">
+                  <Input
+                    placeholder="ملاحظات (اختياري)"
+                    value={newMatNotes}
+                    onChange={(e) => setNewMatNotes(e.target.value)}
+                    dir="rtl"
+                    className="flex-1"
+                  />
+                  <Button
+                    onClick={handleAddMaterial}
+                    disabled={addingMaterial || !newMatName.trim() || !newMatQty.trim()}
+                    size="sm"
+                  >
+                    {addingMaterial ? 'جارٍ...' : 'إضافة'}
                   </Button>
                 </div>
               </div>

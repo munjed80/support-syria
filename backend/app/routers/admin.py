@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.database import get_db
 from app.deps import get_current_user, require_roles, require_district_scope, require_municipality_scope
-from app.models import Attachment, AuditLog, District, Governorate, Municipality, RequestUpdate, ServiceRequest, User
+from app.models import Attachment, AuditLog, District, Governorate, MaterialUsed, Municipality, RequestUpdate, ServiceRequest, User
 from app.auth import hash_password
 from app.schemas import (
     AdminServiceRequestCreate,
@@ -24,11 +24,14 @@ from app.schemas import (
     DistrictUpdate,
     GovernorateOut,
     InternalNoteRequest,
+    MaterialUsedCreate,
+    MaterialUsedOut,
     MunicipalityCreate,
     MunicipalityOut,
     MunicipalityUpdate,
     PaginatedRequests,
     PriorityUpdateRequest,
+    ResponsibleTeamUpdateRequest,
     ServiceRequestDetail,
     ServiceRequestOut,
     StatusUpdateRequest,
@@ -67,6 +70,59 @@ def _log(db: Session, actor_id, action: str, entity_type: str, entity_id: str, d
         details=details,
     )
     db.add(entry)
+
+
+def _extract_name_code(name: str, length: int = 3) -> str:
+    """Extract up to `length` uppercase ASCII letters from name."""
+    import re
+    ascii_only = re.sub(r"[^A-Za-z]", "", name)
+    if ascii_only:
+        return ascii_only[:length].upper()
+    # Fall back to first letter of each word
+    words = name.split()
+    result = ""
+    for word in words:
+        if word:
+            result += word[0].upper()
+        if len(result) >= length:
+            break
+    return (result or "XXX")[:length].upper()
+
+
+def _generate_complaint_number(db: Session, district: District) -> str:
+    """Generate a unique complaint number: MUN_CODE-DIST_CODE-YEAR-SEQ."""
+    from datetime import date
+
+    mun_name = district.municipality.name if district.municipality else "MUN"
+    dist_name = district.name
+
+    mun_code = _extract_name_code(mun_name, 3)
+    dist_code = _extract_name_code(dist_name, 3)
+    year = date.today().year
+
+    # Count existing complaints for this district this year
+    prefix = f"{mun_code}-{dist_code}-{year}-"
+    existing = (
+        db.query(ServiceRequest)
+        .filter(ServiceRequest.complaint_number.like(f"{prefix}%"))
+        .count()
+    )
+    seq = existing + 1
+
+    for attempt in range(100):
+        candidate = f"{prefix}{(seq + attempt):06d}"
+        if not db.query(ServiceRequest).filter(
+            ServiceRequest.complaint_number == candidate
+        ).first():
+            return candidate
+
+    # Ultimate fallback: append random suffix (should not happen in normal operation)
+    import logging
+    import secrets
+    logging.getLogger(__name__).warning(
+        "Complaint number generation required random fallback for prefix=%s seq=%d", prefix, seq
+    )
+    return f"{prefix}{seq:06d}-{secrets.token_hex(3).upper()}"
 
 
 # ─── Governorates ─────────────────────────────────────────────────────────────
@@ -324,6 +380,16 @@ def create_request(
     else:
         raise HTTPException(status_code=500, detail="Could not generate unique tracking code")
 
+    # Eagerly load municipality for complaint number generation
+    from sqlalchemy.orm import joinedload
+    district = (
+        db.query(District)
+        .options(joinedload(District.municipality))
+        .filter(District.id == payload.district_id)
+        .first()
+    )
+    complaint_number = _generate_complaint_number(db, district)
+
     now = datetime.now(timezone.utc)
     sla_deadline = get_sla_deadline(now, payload.category, payload.priority)
     sla_st = calculate_sla_status(now, payload.category, payload.priority, "new",
@@ -332,6 +398,7 @@ def create_request(
     req = ServiceRequest(
         municipality_id=district.municipality_id,
         district_id=district.id,
+        complaint_number=complaint_number,
         category=payload.category,
         priority=payload.priority,
         status="new",
@@ -539,6 +606,118 @@ def add_internal_note(
     db.commit()
     db.refresh(req)
     return req
+
+
+@router.post("/requests/{request_id}/responsible-team", response_model=ServiceRequestOut)
+def update_responsible_team(
+    request_id: UUID,
+    payload: ResponsibleTeamUpdateRequest,
+    current_user: User = Depends(require_roles("mayor", "governor")),
+    db: Session = Depends(get_db),
+):
+    """Mayor or Governor can assign/change the responsible team for a request."""
+    req = _scoped_requests(db, current_user).filter(ServiceRequest.id == request_id).first()
+    if not req:
+        raise HTTPException(status_code=404, detail="Request not found")
+
+    from app.models import RESPONSIBLE_TEAMS
+    if payload.responsible_team is not None and payload.responsible_team not in RESPONSIBLE_TEAMS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Invalid responsible_team. Allowed: {', '.join(RESPONSIBLE_TEAMS)}",
+        )
+
+    old_team = req.responsible_team
+    req.responsible_team = payload.responsible_team
+    req.updated_at = datetime.now(timezone.utc)
+
+    TEAM_LABELS = {
+        "electricity": "فريق الكهرباء",
+        "water": "فريق المياه",
+        "gas": "فريق الغاز",
+        "maintenance": "فريق الصيانة",
+        "sanitation": "فريق النظافة",
+    }
+    new_label = TEAM_LABELS.get(payload.responsible_team or "", payload.responsible_team or "—")
+    db.add(RequestUpdate(
+        request_id=req.id,
+        actor_user_id=current_user.id,
+        actor_name=current_user.name,
+        message=f"تم تعيين الفريق المسؤول: {new_label}",
+        is_internal=True,
+    ))
+    _log(db, current_user.id, "update_responsible_team", "service_request", req.id,
+         f"{old_team} -> {payload.responsible_team}")
+    db.commit()
+    db.refresh(req)
+    return req
+
+
+@router.get("/requests/{request_id}/materials", response_model=list[MaterialUsedOut])
+def list_materials(
+    request_id: UUID,
+    current_user: User = Depends(require_roles(*ALLOWED_ROLES)),
+    db: Session = Depends(get_db),
+):
+    req = _scoped_requests(db, current_user).filter(ServiceRequest.id == request_id).first()
+    if not req:
+        raise HTTPException(status_code=404, detail="Request not found")
+    return req.materials_used
+
+
+@router.post("/requests/{request_id}/materials", response_model=MaterialUsedOut, status_code=201)
+def add_material(
+    request_id: UUID,
+    payload: MaterialUsedCreate,
+    current_user: User = Depends(require_roles(*ALLOWED_ROLES)),
+    db: Session = Depends(get_db),
+):
+    req = _scoped_requests(db, current_user).filter(ServiceRequest.id == request_id).first()
+    if not req:
+        raise HTTPException(status_code=404, detail="Request not found")
+
+    material = MaterialUsed(
+        request_id=req.id,
+        name=payload.name.strip(),
+        quantity=payload.quantity.strip(),
+        notes=payload.notes.strip() if payload.notes else None,
+    )
+    db.add(material)
+    db.add(RequestUpdate(
+        request_id=req.id,
+        actor_user_id=current_user.id,
+        actor_name=current_user.name,
+        message=f"تمت إضافة مادة: {payload.name} — {payload.quantity}",
+        is_internal=True,
+    ))
+    _log(db, current_user.id, "add_material", "service_request", req.id,
+         f"{payload.name} x {payload.quantity}")
+    db.commit()
+    db.refresh(material)
+    return material
+
+
+@router.delete("/requests/{request_id}/materials/{material_id}", status_code=204)
+def delete_material(
+    request_id: UUID,
+    material_id: UUID,
+    current_user: User = Depends(require_roles(*ALLOWED_ROLES)),
+    db: Session = Depends(get_db),
+):
+    req = _scoped_requests(db, current_user).filter(ServiceRequest.id == request_id).first()
+    if not req:
+        raise HTTPException(status_code=404, detail="Request not found")
+
+    material = db.query(MaterialUsed).filter(
+        MaterialUsed.id == material_id,
+        MaterialUsed.request_id == request_id,
+    ).first()
+    if not material:
+        raise HTTPException(status_code=404, detail="Material not found")
+
+    db.delete(material)
+    _log(db, current_user.id, "delete_material", "service_request", req.id, str(material_id))
+    db.commit()
 
 
 @router.post("/requests/{request_id}/attachments", response_model=AttachmentOut)
