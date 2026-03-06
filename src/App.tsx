@@ -1,9 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Toaster } from '@/components/ui/sonner'
 import { Button } from '@/components/ui/button'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { AuthProvider, useAuth } from '@/hooks/use-auth'
-import { SubmitRequestForm } from '@/components/SubmitRequestForm'
 import { TrackRequest } from '@/components/TrackRequest'
 import { LoginForm } from '@/components/LoginForm'
 import { AdminDashboard } from '@/components/AdminDashboard'
@@ -12,7 +10,7 @@ import { Buildings } from '@phosphor-icons/react'
 
 function AppContent() {
   const { currentUser, login, logout, isAuthenticated } = useAuth()
-  const [activeTab, setActiveTab] = useState('submit')
+  const [activeTab, setActiveTab] = useState('track')
 
   useEffect(() => {
     const hash = window.location.hash
@@ -26,7 +24,7 @@ function AppContent() {
   }
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background" dir="rtl">
       <header className="border-b bg-card shadow-sm">
         <div className="container mx-auto px-4 py-6">
           <div className="flex items-center justify-between">
@@ -36,14 +34,14 @@ function AppContent() {
               </div>
               <div>
                 <h1 className="text-2xl font-bold">نظام الطلبات البلدية</h1>
-                <p className="text-sm text-muted-foreground">خدمات إلكترونية للمواطنين</p>
+                <p className="text-sm text-muted-foreground">خدمات بلدية دمشق</p>
               </div>
             </div>
             <Button
               variant="outline"
               onClick={() => setActiveTab('login')}
             >
-              تسجيل الدخول الإداري
+              دخول الإداريين
             </Button>
           </div>
         </div>
@@ -53,36 +51,21 @@ function AppContent() {
         {activeTab === 'login' ? (
           <LoginForm onLogin={login} />
         ) : (
-          <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-            <div className="flex justify-center">
-              <TabsList className="grid w-full max-w-md grid-cols-2">
-                <TabsTrigger value="submit">تقديم طلب</TabsTrigger>
-                <TabsTrigger value="track">تتبع طلب</TabsTrigger>
-              </TabsList>
-            </div>
-
-            <div className="max-w-3xl mx-auto">
-              <TabsContent value="submit">
-                <SubmitRequestForm />
-              </TabsContent>
-
-              <TabsContent value="track">
-                <TrackRequest 
-                  initialCode={
-                    window.location.hash.startsWith('#track-')
-                      ? window.location.hash.replace('#track-', '')
-                      : ''
-                  }
-                />
-              </TabsContent>
-            </div>
-          </Tabs>
+          <div className="max-w-3xl mx-auto">
+            <TrackRequest
+              initialCode={
+                window.location.hash.startsWith('#track-')
+                  ? window.location.hash.replace('#track-', '')
+                  : ''
+              }
+            />
+          </div>
         )}
       </main>
 
       <footer className="border-t mt-16 py-8 bg-muted">
         <div className="container mx-auto px-4 text-center text-sm text-muted-foreground">
-          <p>© 2024 نظام الطلبات البلدية. جميع الحقوق محفوظة.</p>
+          <p>© 2024 نظام الطلبات البلدية - دمشق. جميع الحقوق محفوظة.</p>
         </div>
       </footer>
 

@@ -1,11 +1,15 @@
 import { useState, useMemo, useEffect, useCallback } from 'react'
-import { api, toServiceRequest, toDistrict } from '@/lib/api'
+import { api, toServiceRequest, toDistrict, toMunicipality, MunicipalityOut, DistrictOut } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Input } from '@/components/ui/input'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
+import { Switch } from '@/components/ui/switch'
+import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
 import {
   Table,
   TableBody,
@@ -14,274 +18,744 @@ import {
   TableHeader,
   TableRow
 } from '@/components/ui/table'
-import { SignOut, ChartBar, Buildings, Warning, ClipboardText, Info } from '@phosphor-icons/react'
-import { CATEGORIES, STATUSES, STATUS_COLORS, PRIORITIES, PRIORITY_BADGE_COLORS, PRIORITY_ORDER, CATEGORY_ESCALATION_RULES, formatRelativeTime, isOverdue } from '@/lib/constants'
+import { SignOut, ChartBar, Buildings, Warning, ClipboardText, Plus, MagnifyingGlass, MapPin } from '@phosphor-icons/react'
+import { CATEGORIES, STATUSES, STATUS_COLORS, PRIORITIES, PRIORITY_BADGE_COLORS, PRIORITY_ORDER, formatRelativeTime, isOverdue } from '@/lib/constants'
 import { RequestDetailsDialog } from '@/components/RequestDetailsDialog'
-import type { ServiceRequest, User, District } from '@/lib/types'
+import type { ServiceRequest, User, District, Municipality } from '@/lib/types'
+import { toast } from 'sonner'
 
 interface AdminDashboardProps {
   user: User
   onLogout: () => void
 }
 
-export function AdminDashboard({ user, onLogout }: AdminDashboardProps) {
-  const [requests, setRequests] = useState<ServiceRequest[]>([])
-  const [districts, setDistricts] = useState<District[]>([])
-  
-  const [statusFilter, setStatusFilter] = useState<string>('all')
-  const [categoryFilter, setCategoryFilter] = useState<string>('all')
-  const [districtFilter, setDistrictFilter] = useState<string>('all')
-  const [priorityFilter, setPriorityFilter] = useState<string>('all')
-  const [activeView, setActiveView] = useState<string>('all')
-  const [selectedRequest, setSelectedRequest] = useState<ServiceRequest | null>(null)
-  const [dialogOpen, setDialogOpen] = useState(false)
+// ─── Municipality Management (Governor) ──────────────────────────────────────
 
-  // Load districts once
-  useEffect(() => {
-    api.getDistricts()
-      .then((list) => setDistricts(list.map(toDistrict)))
-      .catch(() => {})
+function MunicipalitiesView({ user }: { user: User }) {
+  const [municipalities, setMunicipalities] = useState<Municipality[]>([])
+  const [loading, setLoading] = useState(false)
+  const [showAdd, setShowAdd] = useState(false)
+  const [newName, setNewName] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+
+  const load = useCallback(() => {
+    setLoading(true)
+    api.getMunicipalities()
+      .then((list) => setMunicipalities(list.map(toMunicipality)))
+      .catch(() => toast.error('تعذّر تحميل البلديات'))
+      .finally(() => setLoading(false))
   }, [])
 
-  const fetchRequests = useCallback(() => {
-    const filters: Record<string, any> = {}
-    if (statusFilter !== 'all') filters.status = statusFilter
-    if (categoryFilter !== 'all') filters.category = categoryFilter
-    if (priorityFilter !== 'all') filters.priority = priorityFilter
-    if (districtFilter !== 'all' && user.role === 'municipal_admin') {
-      filters.district_id = districtFilter
+  useEffect(() => { load() }, [load])
+
+  const handleAdd = async () => {
+    if (!newName.trim()) return
+    setSubmitting(true)
+    try {
+      await api.createMunicipality(newName.trim())
+      setNewName('')
+      setShowAdd(false)
+      load()
+      toast.success('تمت إضافة البلدية')
+    } catch (e: any) {
+      toast.error(e.message || 'فشل إضافة البلدية')
+    } finally {
+      setSubmitting(false)
     }
-    // For staff: server always restricts to assigned; pass assigned_to_me for my_tasks tab
-    if (user.role === 'staff' && activeView === 'my_tasks') {
-      filters.assigned_to_me = true
+  }
+
+  const toggleActive = async (mun: Municipality) => {
+    try {
+      await api.updateMunicipality(mun.id, { is_active: !mun.isActive })
+      load()
+      toast.success(mun.isActive ? 'تم تعطيل البلدية' : 'تم تفعيل البلدية')
+    } catch (e: any) {
+      toast.error(e.message || 'فشل التحديث')
     }
-    filters.page_size = 100
-
-    api.getRequests(filters)
-      .then((result) => setRequests(result.items.map(toServiceRequest)))
-      .catch(() => {})
-  }, [statusFilter, categoryFilter, priorityFilter, districtFilter, activeView, user.role])
-
-  useEffect(() => {
-    fetchRequests()
-  }, [fetchRequests])
-
-  const userRequests = useMemo(() => {
-    return [...requests].sort((a, b) => {
-      const priorityDiff = PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority]
-      if (priorityDiff !== 0) return priorityDiff
-      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-    })
-  }, [requests])
-
-  const stats = useMemo(() => {
-    const all = userRequests
-    return {
-      total: all.length,
-      open: all.filter(r => r.status !== 'completed' && r.status !== 'rejected').length,
-      completed: all.filter(r => r.status === 'completed').length,
-      overdue: all.filter(r => isOverdue(r)).length,
-      urgent: all.filter(r => r.priority === 'urgent').length
-    }
-  }, [userRequests])
-
-  const userDistricts = useMemo(() => {
-    if (user.role === 'municipal_admin') {
-      return districts.filter(d => d.municipalityId === user.municipalityId)
-    } else if (user.role === 'district_admin' && user.districtId) {
-      return districts.filter(d => d.id === user.districtId)
-    }
-    return []
-  }, [districts, user])
-
-  const handleRequestClick = (request: ServiceRequest) => {
-    setSelectedRequest(request)
-    setDialogOpen(true)
   }
 
   return (
-    <div className="min-h-screen bg-background">
-      <header className="border-b bg-card">
-        <div className="container mx-auto px-4 py-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-bold">لوحة التحكم</h1>
-              <p className="text-sm text-muted-foreground">{user.name}</p>
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h2 className="text-xl font-semibold">البلديات</h2>
+        <Button onClick={() => setShowAdd(true)} size="sm">
+          <Plus className="ml-2" size={16} />
+          إضافة بلدية
+        </Button>
+      </div>
+
+      {showAdd && (
+        <Card className="border-primary/30">
+          <CardContent className="pt-4">
+            <div className="flex gap-2">
+              <Input
+                placeholder="اسم البلدية"
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
+                className="flex-1"
+                dir="rtl"
+              />
+              <Button onClick={handleAdd} disabled={submitting || !newName.trim()}>
+                حفظ
+              </Button>
+              <Button variant="outline" onClick={() => { setShowAdd(false); setNewName('') }}>
+                إلغاء
+              </Button>
             </div>
-            <Button variant="outline" onClick={onLogout}>
-              <SignOut className="ml-2" />
-              تسجيل الخروج
-            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      <Card>
+        <CardContent className="pt-4">
+          {loading ? (
+            <p className="text-center text-muted-foreground py-8">جارٍ التحميل...</p>
+          ) : municipalities.length === 0 ? (
+            <p className="text-center text-muted-foreground py-8">لا توجد بلديات</p>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>اسم البلدية</TableHead>
+                  <TableHead>الحالة</TableHead>
+                  <TableHead>إجراء</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {municipalities.map((mun) => (
+                  <TableRow key={mun.id}>
+                    <TableCell className="font-medium">{mun.name}</TableCell>
+                    <TableCell>
+                      <Badge variant={mun.isActive ? 'default' : 'secondary'}>
+                        {mun.isActive ? 'مفعّلة' : 'معطّلة'}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-2">
+                        <Switch
+                          checked={mun.isActive}
+                          onCheckedChange={() => toggleActive(mun)}
+                        />
+                        <Label className="text-sm">
+                          {mun.isActive ? 'تعطيل' : 'تفعيل'}
+                        </Label>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
+
+// ─── District Management (Mayor) ─────────────────────────────────────────────
+
+function DistrictsView({ user }: { user: User }) {
+  const [districts, setDistricts] = useState<District[]>([])
+  const [loading, setLoading] = useState(false)
+  const [showAdd, setShowAdd] = useState(false)
+  const [newName, setNewName] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+
+  const load = useCallback(() => {
+    setLoading(true)
+    api.getAdminDistricts()
+      .then((list) => setDistricts(list.map(toDistrict)))
+      .catch(() => toast.error('تعذّر تحميل الأحياء'))
+      .finally(() => setLoading(false))
+  }, [])
+
+  useEffect(() => { load() }, [load])
+
+  const handleAdd = async () => {
+    if (!newName.trim()) return
+    setSubmitting(true)
+    try {
+      await api.createDistrict(newName.trim())
+      setNewName('')
+      setShowAdd(false)
+      load()
+      toast.success('تمت إضافة الحي')
+    } catch (e: any) {
+      toast.error(e.message || 'فشل إضافة الحي')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const toggleActive = async (district: District) => {
+    try {
+      await api.updateDistrict(district.id, { is_active: !district.isActive })
+      load()
+      toast.success(district.isActive ? 'تم تعطيل الحي' : 'تم تفعيل الحي')
+    } catch (e: any) {
+      toast.error(e.message || 'فشل التحديث')
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h2 className="text-xl font-semibold">الأحياء</h2>
+        <Button onClick={() => setShowAdd(true)} size="sm">
+          <Plus className="ml-2" size={16} />
+          إضافة حي
+        </Button>
+      </div>
+
+      {showAdd && (
+        <Card className="border-primary/30">
+          <CardContent className="pt-4">
+            <div className="flex gap-2">
+              <Input
+                placeholder="اسم الحي"
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
+                className="flex-1"
+                dir="rtl"
+              />
+              <Button onClick={handleAdd} disabled={submitting || !newName.trim()}>
+                حفظ
+              </Button>
+              <Button variant="outline" onClick={() => { setShowAdd(false); setNewName('') }}>
+                إلغاء
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      <Card>
+        <CardContent className="pt-4">
+          {loading ? (
+            <p className="text-center text-muted-foreground py-8">جارٍ التحميل...</p>
+          ) : districts.length === 0 ? (
+            <p className="text-center text-muted-foreground py-8">لا توجد أحياء</p>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>اسم الحي</TableHead>
+                  <TableHead>الحالة</TableHead>
+                  <TableHead>إجراء</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {districts.map((district) => (
+                  <TableRow key={district.id}>
+                    <TableCell className="font-medium">{district.name}</TableCell>
+                    <TableCell>
+                      <Badge variant={district.isActive ? 'default' : 'secondary'}>
+                        {district.isActive ? 'مفعّل' : 'معطّل'}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-2">
+                        <Switch
+                          checked={district.isActive}
+                          onCheckedChange={() => toggleActive(district)}
+                        />
+                        <Label className="text-sm">
+                          {district.isActive ? 'تعطيل' : 'تفعيل'}
+                        </Label>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
+
+// ─── Create Request Dialog (Mukhtar) ─────────────────────────────────────────
+
+function CreateRequestDialog({
+  open,
+  onOpenChange,
+  districtId,
+  onCreated,
+}: {
+  open: boolean
+  onOpenChange: (v: boolean) => void
+  districtId: string
+  onCreated: () => void
+}) {
+  const [category, setCategory] = useState('other')
+  const [priority, setPriority] = useState('normal')
+  const [description, setDescription] = useState('')
+  const [addressText, setAddressText] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+
+  const handleSubmit = async () => {
+    if (!description.trim()) return
+    setSubmitting(true)
+    try {
+      await api.createRequest({
+        district_id: districtId,
+        category,
+        priority,
+        description: description.trim(),
+        address_text: addressText.trim() || undefined,
+      })
+      setDescription('')
+      setAddressText('')
+      setCategory('other')
+      setPriority('normal')
+      onOpenChange(false)
+      onCreated()
+      toast.success('تم تسجيل الطلب بنجاح')
+    } catch (e: any) {
+      toast.error(e.message || 'فشل تسجيل الطلب')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent dir="rtl" className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>تسجيل طلب جديد</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div>
+            <Label>الفئة</Label>
+            <Select value={category} onValueChange={setCategory}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {Object.entries(CATEGORIES).map(([key, label]) => (
+                  <SelectItem key={key} value={key}>{label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <Label>الأولوية</Label>
+            <Select value={priority} onValueChange={setPriority}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {Object.entries(PRIORITIES).map(([key, label]) => (
+                  <SelectItem key={key} value={key}>{label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <Label>وصف الطلب <span className="text-destructive">*</span></Label>
+            <Textarea
+              placeholder="أدخل وصفاً تفصيلياً للطلب..."
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              rows={4}
+              dir="rtl"
+            />
+          </div>
+          <div>
+            <Label>العنوان (اختياري)</Label>
+            <Input
+              placeholder="حارة / شارع / وصف الموقع"
+              value={addressText}
+              onChange={(e) => setAddressText(e.target.value)}
+              dir="rtl"
+            />
           </div>
         </div>
-      </header>
+        <DialogFooter className="flex-row-reverse gap-2">
+          <Button onClick={handleSubmit} disabled={submitting || !description.trim()}>
+            {submitting ? 'جارٍ الحفظ...' : 'تسجيل الطلب'}
+          </Button>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            إلغاء
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
 
-      <main className="container mx-auto px-4 py-8">
-        <Alert className="mb-8 border-[oklch(0.55_0.10_250)] bg-[oklch(0.55_0.10_250)]/5">
-          <Info className="h-4 w-4 text-[oklch(0.55_0.10_250)]" />
-          <AlertTitle>قواعد الترقية التلقائية حسب الفئة</AlertTitle>
-          <AlertDescription className="mt-2 text-sm space-y-1">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-              {Object.entries(CATEGORY_ESCALATION_RULES).map(([category, rules]) => (
-                <div key={category} className="flex items-center gap-2">
-                  <span className="font-semibold">{CATEGORIES[category as keyof typeof CATEGORIES]}:</span>
-                  <span className="text-xs">
-                    {rules.low.hoursToNextLevel}س → {rules.normal.hoursToNextLevel}س → {rules.high.hoursToNextLevel}س
-                  </span>
-                </div>
-              ))}
-            </div>
-            <p className="text-xs text-muted-foreground mt-2">
-              * الأرقام تمثل الوقت بالساعات قبل الترقية التلقائية من منخفض → عادي → مرتفع → عاجل
-            </p>
-          </AlertDescription>
-        </Alert>
+// ─── Requests View ────────────────────────────────────────────────────────────
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-          <Card>
-            <CardHeader className="pb-3">
-              <CardDescription>إجمالي الطلبات</CardDescription>
-              <CardTitle className="text-3xl">{stats.total}</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <ChartBar size={24} className="text-muted-foreground" />
-            </CardContent>
-          </Card>
+function RequestsView({ user }: { user: User }) {
+  const [requests, setRequests] = useState<ServiceRequest[]>([])
+  const [districts, setDistricts] = useState<District[]>([])
+  const [municipalities, setMunicipalities] = useState<Municipality[]>([])
+  const [total, setTotal] = useState(0)
+  const [page, setPage] = useState(1)
+  const PAGE_SIZE = 20
 
-          <Card>
-            <CardHeader className="pb-3">
-              <CardDescription>الطلبات المفتوحة</CardDescription>
-              <CardTitle className="text-3xl text-[oklch(0.55_0.10_250)]">{stats.open}</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <Buildings size={24} className="text-muted-foreground" />
-            </CardContent>
-          </Card>
+  // Filters
+  const [statusFilter, setStatusFilter] = useState<string[]>([])
+  const [categoryFilter, setCategoryFilter] = useState<string[]>([])
+  const [priorityFilter, setPriorityFilter] = useState<string[]>([])
+  const [districtFilter, setDistrictFilter] = useState<string>('all')
+  const [municipalityFilter, setMunicipalityFilter] = useState<string>('all')
+  const [overdueFilter, setOverdueFilter] = useState<boolean>(false)
+  const [slaBreachedFilter, setSlaBreachedFilter] = useState<boolean>(false)
+  const [dateFrom, setDateFrom] = useState('')
+  const [dateTo, setDateTo] = useState('')
+  const [search, setSearch] = useState('')
+  const [sortBy, setSortBy] = useState('created_at')
+  const [sortDir, setSortDir] = useState('desc')
 
-          <Card>
-            <CardHeader className="pb-3">
-              <CardDescription>المنجزة</CardDescription>
-              <CardTitle className="text-3xl text-[oklch(0.60_0.15_145)]">{stats.completed}</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <Buildings size={24} className="text-muted-foreground" />
-            </CardContent>
-          </Card>
+  const [selectedRequest, setSelectedRequest] = useState<ServiceRequest | null>(null)
+  const [dialogOpen, setDialogOpen] = useState(false)
+  const [createOpen, setCreateOpen] = useState(false)
 
-          <Card className="border-destructive/50">
-            <CardHeader className="pb-3">
-              <CardDescription>الطلبات العاجلة</CardDescription>
-              <CardTitle className="text-3xl text-destructive">{stats.urgent}</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <Warning size={24} className="text-destructive" />
-            </CardContent>
-          </Card>
-        </div>
+  const isGovernor = user.role === 'governor'
+  const isMayor = user.role === 'mayor'
+  const isMukhtar = user.role === 'mukhtar'
 
+  useEffect(() => {
+    if (isGovernor) {
+      api.getMunicipalities().then((list) => setMunicipalities(list.map(toMunicipality))).catch(() => {})
+      api.getAdminDistricts().then((list) => setDistricts(list.map(toDistrict))).catch(() => {})
+    } else if (isMayor) {
+      api.getAdminDistricts().then((list) => setDistricts(list.map(toDistrict))).catch(() => {})
+    } else {
+      api.getDistricts().then((list) => setDistricts(list.map(toDistrict))).catch(() => {})
+    }
+  }, [isGovernor, isMayor])
+
+  const fetchRequests = useCallback(() => {
+    const filters: Record<string, any> = {
+      page,
+      page_size: PAGE_SIZE,
+      sort_by: sortBy,
+      sort_dir: sortDir,
+    }
+    if (statusFilter.length > 0) filters.status = statusFilter
+    if (categoryFilter.length > 0) filters.category = categoryFilter
+    if (priorityFilter.length > 0) filters.priority = priorityFilter
+    if (districtFilter !== 'all') filters.district_id = districtFilter
+    if (municipalityFilter !== 'all') filters.municipality_id = municipalityFilter
+    if (overdueFilter) filters.overdue = true
+    if (slaBreachedFilter) filters.sla_breached = true
+    if (dateFrom) filters.date_from = dateFrom
+    if (dateTo) filters.date_to = dateTo
+    if (search.trim()) filters.search = search.trim()
+
+    api.getRequests(filters)
+      .then((result) => {
+        setRequests(result.items.map(toServiceRequest))
+        setTotal(result.total)
+      })
+      .catch(() => {})
+  }, [page, statusFilter, categoryFilter, priorityFilter, districtFilter, municipalityFilter,
+      overdueFilter, slaBreachedFilter, dateFrom, dateTo, search, sortBy, sortDir])
+
+  useEffect(() => { fetchRequests() }, [fetchRequests])
+
+  const stats = useMemo(() => {
+    return {
+      total,
+      open: requests.filter(r => r.status !== 'completed' && r.status !== 'rejected').length,
+      completed: requests.filter(r => r.status === 'completed').length,
+      urgent: requests.filter(r => r.priority === 'urgent').length,
+    }
+  }, [requests, total])
+
+  const toggleMultiFilter = (
+    value: string,
+    current: string[],
+    set: (v: string[]) => void,
+  ) => {
+    if (current.includes(value)) {
+      set(current.filter((v) => v !== value))
+    } else {
+      set([...current, value])
+    }
+    setPage(1)
+  }
+
+  const totalPages = Math.ceil(total / PAGE_SIZE)
+
+  return (
+    <div className="space-y-6">
+      {/* Stats */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <Card>
-          <CardHeader>
-            <CardTitle>الطلبات</CardTitle>
-            <CardDescription>
-              إدارة طلبات الخدمات البلدية
-            </CardDescription>
+          <CardHeader className="pb-2">
+            <CardDescription>إجمالي الطلبات</CardDescription>
+            <CardTitle className="text-3xl">{total}</CardTitle>
           </CardHeader>
-          <CardContent>
-            {user.role === 'staff' && (
-              <div className="mb-6">
-                <Tabs value={activeView} onValueChange={setActiveView}>
-                  <TabsList className="grid w-full max-w-md grid-cols-2">
-                    <TabsTrigger value="all">جميع الطلبات</TabsTrigger>
-                    <TabsTrigger value="my_tasks">
-                      <ClipboardText className="ml-2" />
-                      طلباتي
-                    </TabsTrigger>
-                  </TabsList>
-                </Tabs>
+          <CardContent><ChartBar size={24} className="text-muted-foreground" /></CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardDescription>المفتوحة</CardDescription>
+            <CardTitle className="text-3xl text-[oklch(0.55_0.10_250)]">{stats.open}</CardTitle>
+          </CardHeader>
+          <CardContent><Buildings size={24} className="text-muted-foreground" /></CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardDescription>المنجزة</CardDescription>
+            <CardTitle className="text-3xl text-[oklch(0.60_0.15_145)]">{stats.completed}</CardTitle>
+          </CardHeader>
+          <CardContent><Buildings size={24} className="text-muted-foreground" /></CardContent>
+        </Card>
+        <Card className="border-destructive/50">
+          <CardHeader className="pb-2">
+            <CardDescription>العاجلة</CardDescription>
+            <CardTitle className="text-3xl text-destructive">{stats.urgent}</CardTitle>
+          </CardHeader>
+          <CardContent><Warning size={24} className="text-destructive" /></CardContent>
+        </Card>
+      </div>
+
+      {/* Filters */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle>الطلبات</CardTitle>
+            {isMukhtar && (
+              <Button size="sm" onClick={() => setCreateOpen(true)}>
+                <Plus className="ml-2" size={16} />
+                تسجيل طلب
+              </Button>
+            )}
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-4 mb-6">
+            {/* Search */}
+            {(isGovernor || isMayor) && (
+              <div className="relative">
+                <MagnifyingGlass className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={16} />
+                <Input
+                  placeholder="بحث في الوصف أو رمز التتبع أو العنوان..."
+                  value={search}
+                  onChange={(e) => { setSearch(e.target.value); setPage(1) }}
+                  className="pr-9"
+                  dir="rtl"
+                />
               </div>
             )}
 
-            <div className="flex flex-col md:flex-row gap-4 mb-6">
-              <Select value={statusFilter} onValueChange={setStatusFilter}>
-                <SelectTrigger className="md:w-48">
-                  <SelectValue placeholder="الحالة" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">كل الحالات</SelectItem>
-                  {Object.entries(STATUSES).map(([key, label]) => (
-                    <SelectItem key={key} value={key}>{label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-
-              <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-                <SelectTrigger className="md:w-48">
-                  <SelectValue placeholder="الفئة" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">كل الفئات</SelectItem>
-                  {Object.entries(CATEGORIES).map(([key, label]) => (
-                    <SelectItem key={key} value={key}>{label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-
-              <Select value={priorityFilter} onValueChange={setPriorityFilter}>
-                <SelectTrigger className="md:w-48">
-                  <SelectValue placeholder="الأولوية" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">كل الأولويات</SelectItem>
-                  <SelectItem value="urgent">عاجل فقط</SelectItem>
-                  {Object.entries(PRIORITIES).map(([key, label]) => (
-                    <SelectItem key={key} value={key}>{label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-
-              {user.role === 'municipal_admin' && userDistricts.length > 0 && (
-                <Select value={districtFilter} onValueChange={setDistrictFilter}>
-                  <SelectTrigger className="md:w-48">
-                    <SelectValue placeholder="الحي" />
+            <div className="flex flex-wrap gap-3">
+              {/* Municipality filter (governor only) */}
+              {isGovernor && municipalities.length > 0 && (
+                <Select
+                  value={municipalityFilter}
+                  onValueChange={(v) => { setMunicipalityFilter(v); setDistrictFilter('all'); setPage(1) }}
+                >
+                  <SelectTrigger className="w-44">
+                    <SelectValue placeholder="البلدية" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">كل الأحياء</SelectItem>
-                    {userDistricts.map(district => (
-                      <SelectItem key={district.id} value={district.id}>
-                        {district.name}
-                      </SelectItem>
+                    <SelectItem value="all">كل البلديات</SelectItem>
+                    {municipalities.map((m) => (
+                      <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               )}
+
+              {/* District filter */}
+              {(isGovernor || isMayor) && districts.length > 0 && (
+                <Select
+                  value={districtFilter}
+                  onValueChange={(v) => { setDistrictFilter(v); setPage(1) }}
+                >
+                  <SelectTrigger className="w-44">
+                    <SelectValue placeholder="الحي" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">كل الأحياء</SelectItem>
+                    {districts
+                      .filter((d) => municipalityFilter === 'all' || d.municipalityId === municipalityFilter)
+                      .map((d) => (
+                        <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+              )}
+
+              {/* Sort */}
+              {isGovernor && (
+                <>
+                  <Select value={sortBy} onValueChange={(v) => { setSortBy(v); setPage(1) }}>
+                    <SelectTrigger className="w-44">
+                      <SelectValue placeholder="ترتيب حسب" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="created_at">تاريخ الإنشاء</SelectItem>
+                      <SelectItem value="updated_at">آخر تحديث</SelectItem>
+                      <SelectItem value="priority">الأولوية</SelectItem>
+                      <SelectItem value="status">الحالة</SelectItem>
+                      <SelectItem value="sla_deadline">الموعد النهائي</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Select value={sortDir} onValueChange={(v) => { setSortDir(v); setPage(1) }}>
+                    <SelectTrigger className="w-36">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="desc">تنازلي</SelectItem>
+                      <SelectItem value="asc">تصاعدي</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </>
+              )}
             </div>
 
-            <div className="rounded-md border">
-              <Table>
-                <TableHeader>
+            {/* Multi-select status */}
+            <div className="flex flex-wrap gap-2">
+              <span className="text-sm text-muted-foreground self-center ml-1">الحالة:</span>
+              {Object.entries(STATUSES).map(([key, label]) => (
+                <Badge
+                  key={key}
+                  variant={statusFilter.includes(key) ? 'default' : 'outline'}
+                  className="cursor-pointer select-none"
+                  onClick={() => toggleMultiFilter(key, statusFilter, setStatusFilter)}
+                >
+                  {label}
+                </Badge>
+              ))}
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <span className="text-sm text-muted-foreground self-center ml-1">الفئة:</span>
+              {Object.entries(CATEGORIES).map(([key, label]) => (
+                <Badge
+                  key={key}
+                  variant={categoryFilter.includes(key) ? 'default' : 'outline'}
+                  className="cursor-pointer select-none"
+                  onClick={() => toggleMultiFilter(key, categoryFilter, setCategoryFilter)}
+                >
+                  {label}
+                </Badge>
+              ))}
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <span className="text-sm text-muted-foreground self-center ml-1">الأولوية:</span>
+              {Object.entries(PRIORITIES).map(([key, label]) => (
+                <Badge
+                  key={key}
+                  variant={priorityFilter.includes(key) ? 'default' : 'outline'}
+                  className="cursor-pointer select-none"
+                  onClick={() => toggleMultiFilter(key, priorityFilter, setPriorityFilter)}
+                >
+                  {label}
+                </Badge>
+              ))}
+            </div>
+
+            {/* Governor-only advanced filters */}
+            {isGovernor && (
+              <div className="flex flex-wrap gap-4 items-center pt-1 border-t">
+                <div className="flex items-center gap-2">
+                  <Switch
+                    id="overdue"
+                    checked={overdueFilter}
+                    onCheckedChange={(v) => { setOverdueFilter(v); setPage(1) }}
+                  />
+                  <Label htmlFor="overdue" className="cursor-pointer">متأخّرة</Label>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Switch
+                    id="sla_breached"
+                    checked={slaBreachedFilter}
+                    onCheckedChange={(v) => { setSlaBreachedFilter(v); setPage(1) }}
+                  />
+                  <Label htmlFor="sla_breached" className="cursor-pointer">SLA منتهية</Label>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Label className="text-sm">من:</Label>
+                  <Input
+                    type="date"
+                    value={dateFrom}
+                    onChange={(e) => { setDateFrom(e.target.value); setPage(1) }}
+                    className="w-36 text-sm"
+                  />
+                </div>
+                <div className="flex items-center gap-2">
+                  <Label className="text-sm">إلى:</Label>
+                  <Input
+                    type="date"
+                    value={dateTo}
+                    onChange={(e) => { setDateTo(e.target.value); setPage(1) }}
+                    className="w-36 text-sm"
+                  />
+                </div>
+                {(overdueFilter || slaBreachedFilter || dateFrom || dateTo ||
+                  statusFilter.length || categoryFilter.length || priorityFilter.length ||
+                  districtFilter !== 'all' || municipalityFilter !== 'all' || search) && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      setOverdueFilter(false)
+                      setSlaBreachedFilter(false)
+                      setDateFrom('')
+                      setDateTo('')
+                      setStatusFilter([])
+                      setCategoryFilter([])
+                      setPriorityFilter([])
+                      setDistrictFilter('all')
+                      setMunicipalityFilter('all')
+                      setSearch('')
+                      setPage(1)
+                    }}
+                  >
+                    مسح الفلاتر
+                  </Button>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Table */}
+          <div className="rounded-md border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>رمز التتبع</TableHead>
+                  <TableHead>الأولوية</TableHead>
+                  <TableHead>الفئة</TableHead>
+                  <TableHead>الحالة</TableHead>
+                  <TableHead>الوصف</TableHead>
+                  {(isGovernor || isMayor) && <TableHead>الحي</TableHead>}
+                  <TableHead>التاريخ</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {requests.length === 0 ? (
                   <TableRow>
-                    <TableHead>رمز التتبع</TableHead>
-                    <TableHead>الأولوية</TableHead>
-                    <TableHead>الفئة</TableHead>
-                    <TableHead>الحالة</TableHead>
-                    <TableHead>الوصف</TableHead>
-                    {user.role !== 'staff' && <TableHead>المكلف</TableHead>}
-                    <TableHead>التاريخ</TableHead>
+                    <TableCell
+                      colSpan={(isGovernor || isMayor) ? 7 : 6}
+                      className="text-center text-muted-foreground py-8"
+                    >
+                      لا توجد طلبات
+                    </TableCell>
                   </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {userRequests.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={user.role !== 'staff' ? 7 : 6} className="text-center text-muted-foreground py-8">
-                        لا توجد طلبات
-                      </TableCell>
-                    </TableRow>
-                  ) : (
-                    userRequests.map(request => (
-                      <TableRow 
+                ) : (
+                  requests.map((request) => {
+                    const districtName = districts.find((d) => d.id === request.districtId)?.name
+                    return (
+                      <TableRow
                         key={request.id}
-                        className={`cursor-pointer hover:bg-muted/50 ${request.priority === 'urgent' ? 'bg-destructive/5 border-l-4 border-l-destructive' : ''}`}
-                        onClick={() => handleRequestClick(request)}
+                        className={`cursor-pointer hover:bg-muted/50 ${
+                          request.priority === 'urgent'
+                            ? 'bg-destructive/5 border-l-4 border-l-destructive'
+                            : ''
+                        }`}
+                        onClick={() => { setSelectedRequest(request); setDialogOpen(true) }}
                       >
                         <TableCell className="font-mono font-semibold">
                           {request.trackingCode}
@@ -307,26 +781,49 @@ export function AdminDashboard({ user, onLogout }: AdminDashboardProps) {
                             {STATUSES[request.status]}
                           </Badge>
                         </TableCell>
-                        <TableCell className="max-w-xs truncate">
-                          {request.description}
-                        </TableCell>
-                        {user.role !== 'staff' && (
-                          <TableCell className="text-sm">
-                            {request.assignedToName || <span className="text-muted-foreground">غير مخصص</span>}
+                        <TableCell className="max-w-xs truncate">{request.description}</TableCell>
+                        {(isGovernor || isMayor) && (
+                          <TableCell className="text-sm text-muted-foreground">
+                            {districtName || '—'}
                           </TableCell>
                         )}
                         <TableCell className="text-sm text-muted-foreground">
                           {formatRelativeTime(request.createdAt)}
                         </TableCell>
                       </TableRow>
-                    ))
-                  )}
-                </TableBody>
-              </Table>
+                    )
+                  })
+                )}
+              </TableBody>
+            </Table>
+          </div>
+
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between mt-4">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={page <= 1}
+                onClick={() => setPage((p) => p - 1)}
+              >
+                السابق
+              </Button>
+              <span className="text-sm text-muted-foreground">
+                صفحة {page} من {totalPages} ({total} طلب)
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={page >= totalPages}
+                onClick={() => setPage((p) => p + 1)}
+              >
+                التالي
+              </Button>
             </div>
-          </CardContent>
-        </Card>
-      </main>
+          )}
+        </CardContent>
+      </Card>
 
       <RequestDetailsDialog
         request={selectedRequest}
@@ -336,6 +833,74 @@ export function AdminDashboard({ user, onLogout }: AdminDashboardProps) {
         districts={districts}
         onUpdate={fetchRequests}
       />
+
+      {isMukhtar && user.districtId && (
+        <CreateRequestDialog
+          open={createOpen}
+          onOpenChange={setCreateOpen}
+          districtId={user.districtId}
+          onCreated={fetchRequests}
+        />
+      )}
+    </div>
+  )
+}
+
+// ─── Main AdminDashboard ──────────────────────────────────────────────────────
+
+export function AdminDashboard({ user, onLogout }: AdminDashboardProps) {
+  const isGovernor = user.role === 'governor'
+  const isMayor = user.role === 'mayor'
+
+  const [activeTab, setActiveTab] = useState<'requests' | 'municipalities' | 'districts'>('requests')
+
+  const tabs: { key: typeof activeTab; label: string; show: boolean }[] = [
+    { key: 'requests', label: 'الطلبات', show: true },
+    { key: 'municipalities', label: 'البلديات', show: isGovernor },
+    { key: 'districts', label: 'الأحياء', show: isMayor },
+  ]
+
+  return (
+    <div className="min-h-screen bg-background" dir="rtl">
+      <header className="border-b bg-card">
+        <div className="container mx-auto px-4 py-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-2xl font-bold">الإدارة</h1>
+              <p className="text-sm text-muted-foreground">{user.name}</p>
+            </div>
+            <Button variant="outline" onClick={onLogout}>
+              <SignOut className="ml-2" />
+              تسجيل الخروج
+            </Button>
+          </div>
+        </div>
+
+        {/* Tab navigation */}
+        <div className="container mx-auto px-4 border-t">
+          <nav className="flex gap-1 pt-1">
+            {tabs.filter((t) => t.show).map((tab) => (
+              <button
+                key={tab.key}
+                onClick={() => setActiveTab(tab.key)}
+                className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+                  activeTab === tab.key
+                    ? 'border-primary text-primary'
+                    : 'border-transparent text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </nav>
+        </div>
+      </header>
+
+      <main className="container mx-auto px-4 py-8">
+        {activeTab === 'requests' && <RequestsView user={user} />}
+        {activeTab === 'municipalities' && isGovernor && <MunicipalitiesView user={user} />}
+        {activeTab === 'districts' && isMayor && <DistrictsView user={user} />}
+      </main>
     </div>
   )
 }

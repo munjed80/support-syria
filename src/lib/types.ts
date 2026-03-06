@@ -1,4 +1,4 @@
-export type UserRole = 'citizen' | 'district_admin' | 'municipal_admin' | 'staff'
+export type UserRole = 'citizen' | 'district_admin' | 'municipal_admin' | 'staff' | 'governor' | 'mayor' | 'mukhtar'
 
 export type RequestCategory = 'lighting' | 'water' | 'waste' | 'roads' | 'other'
 
@@ -6,15 +6,24 @@ export type RequestStatus = 'submitted' | 'received' | 'in_progress' | 'complete
 
 export type Priority = 'low' | 'normal' | 'high' | 'urgent'
 
-export interface Municipality {
+export interface Governorate {
   id: string
   name: string
+  isActive: boolean
+}
+
+export interface Municipality {
+  id: string
+  governorateId?: string
+  name: string
+  isActive: boolean
 }
 
 export interface District {
   id: string
   municipalityId: string
   name: string
+  isActive: boolean
 }
 
 export interface User {
@@ -22,7 +31,8 @@ export interface User {
   email: string
   passwordHash: string
   role: UserRole
-  municipalityId: string
+  governorateId?: string
+  municipalityId?: string
   districtId?: string
   name: string
 }

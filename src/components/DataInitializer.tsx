@@ -13,7 +13,8 @@ export function DataInitializer() {
       const munId = generateId()
       const newMunicipality: Municipality = {
         id: munId,
-        name: 'بلدية الرياض'
+        name: 'بلدية دمشق',
+        isActive: true,
       }
       setMunicipalities([newMunicipality])
 
@@ -28,7 +29,8 @@ export function DataInitializer() {
       const newDistricts: District[] = arabicDistricts.map(name => ({
         id: generateId(),
         municipalityId: munId,
-        name
+        name,
+        isActive: true,
       }))
       setDistricts(newDistricts)
 

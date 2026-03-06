@@ -20,7 +20,10 @@ export const ROLES: Record<UserRole, string> = {
   citizen: 'مواطن',
   district_admin: 'مدير حي',
   municipal_admin: 'مدير بلدي',
-  staff: 'موظف ميداني'
+  staff: 'موظف ميداني',
+  governor: 'محافظ',
+  mayor: 'رئيس البلدية',
+  mukhtar: 'مختار'
 }
 
 export const PRIORITIES: Record<Priority, string> = {

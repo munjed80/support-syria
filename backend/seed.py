@@ -1,5 +1,5 @@
 """
-Seed script – creates default municipality, districts, and user accounts.
+Seed script – creates Damascus governorate, municipality, districts, and user accounts.
 Run: python seed.py
 
 Requires DATABASE_URL to be set (or uses the default from config).
@@ -12,7 +12,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 from app.auth import hash_password
 from app.database import SessionLocal, engine
-from app.models import Base, District, Municipality, ServiceRequest, RequestUpdate, User
+from app.models import Base, District, Governorate, Municipality, ServiceRequest, RequestUpdate, User
 from app.sla import get_sla_deadline, calculate_sla_status
 from datetime import datetime, timezone
 import uuid
@@ -23,26 +23,42 @@ Base.metadata.create_all(bind=engine)
 def seed():
     db = SessionLocal()
     try:
-        if db.query(Municipality).count() > 0:
+        if db.query(Governorate).count() > 0:
             print("Database already seeded. Skipping.")
             return
 
+        # Governorate
+        gov = Governorate(name="محافظة دمشق", is_active=True)
+        db.add(gov)
+        db.flush()
+
         # Municipality
-        mun = Municipality(name="بلدية الرياض")
+        mun = Municipality(name="بلدية دمشق", governorate_id=gov.id, is_active=True)
         db.add(mun)
         db.flush()
 
-        # Districts
+        # Districts (16)
         district_names = [
-            "حي العليا",
-            "حي الملز",
-            "حي النسيم",
-            "حي الربوة",
-            "حي السليمانية",
+            "دمر",
+            "المزة",
+            "كفرسوسة",
+            "الميدان",
+            "القدم",
+            "اليرموك",
+            "الشاغور",
+            "جوبر",
+            "القابون",
+            "برزة",
+            "ركن الدين",
+            "الصالحية",
+            "ساروجة",
+            "المهاجرين",
+            "القنوات",
+            "دمشق القديمة",
         ]
         districts = []
         for name in district_names:
-            d = District(municipality_id=mun.id, name=name)
+            d = District(municipality_id=mun.id, name=name, is_active=True)
             db.add(d)
             districts.append(d)
         db.flush()
@@ -50,39 +66,49 @@ def seed():
         # Users
         users_data = [
             {
-                "email": "admin@mun.sa",
-                "password": "admin123",
-                "role": "municipal_admin",
-                "name": "أحمد المدير العام",
+                "email": "governor@damascus.sy",
+                "password": "gov123",
+                "role": "governor",
+                "name": "المحافظ - محافظة دمشق",
+                "governorate_id": gov.id,
+                "municipality_id": None,
                 "district_id": None,
             },
             {
-                "email": "district1@mun.sa",
-                "password": "pass123",
-                "role": "district_admin",
-                "name": "خالد مدير حي العليا",
-                "district_id": districts[0].id,
+                "email": "mayor@damascus.sy",
+                "password": "mayor123",
+                "role": "mayor",
+                "name": "رئيس بلدية دمشق",
+                "governorate_id": None,
+                "municipality_id": mun.id,
+                "district_id": None,
             },
             {
-                "email": "district2@mun.sa",
-                "password": "pass123",
-                "role": "district_admin",
-                "name": "عبدالله مدير حي الملز",
-                "district_id": districts[1].id,
+                "email": "mukhtar.damar@damascus.sy",
+                "password": "mukhtar123",
+                "role": "mukhtar",
+                "name": "مختار حي دمر",
+                "governorate_id": None,
+                "municipality_id": mun.id,
+                "district_id": districts[0].id,  # دمر
             },
             {
-                "email": "staff1@mun.sa",
-                "password": "staff123",
-                "role": "staff",
-                "name": "محمد الفني - العليا",
-                "district_id": districts[0].id,
+                "email": "mukhtar.mazzeh@damascus.sy",
+                "password": "mukhtar123",
+                "role": "mukhtar",
+                "name": "مختار حي المزة",
+                "governorate_id": None,
+                "municipality_id": mun.id,
+                "district_id": districts[1].id,  # المزة
             },
             {
-                "email": "staff2@mun.sa",
-                "password": "staff123",
-                "role": "staff",
-                "name": "سعد الفني - الملز",
-                "district_id": districts[1].id,
+                "email": "mukhtar.midan@damascus.sy",
+                "password": "mukhtar123",
+                "role": "mukhtar",
+                "name": "مختار حي الميدان",
+                "governorate_id": None,
+                "municipality_id": mun.id,
+                "district_id": districts[3].id,  # الميدان
             },
         ]
 
@@ -91,7 +117,8 @@ def seed():
                 email=u["email"],
                 password_hash=hash_password(u["password"]),
                 role=u["role"],
-                municipality_id=mun.id,
+                governorate_id=u["governorate_id"],
+                municipality_id=u["municipality_id"],
                 district_id=u["district_id"],
                 name=u["name"],
             )
@@ -100,42 +127,42 @@ def seed():
         db.flush()
 
         # Sample service requests
+        import secrets
+        TRACKING_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+
+        def gen_code():
+            return "".join(secrets.choice(TRACKING_CHARS) for _ in range(8))
+
         sample_requests = [
             {
-                "district": districts[0],
+                "district": districts[0],  # دمر
                 "category": "lighting",
-                "description": "عمود إنارة مكسور في شارع الملك فهد",
+                "description": "عمود إنارة مكسور في شارع الوحدة",
                 "priority": "high",
                 "status": "in_progress",
             },
             {
-                "district": districts[0],
+                "district": districts[1],  # المزة
                 "category": "water",
-                "description": "تسرب مياه في الرصيف",
+                "description": "تسرب مياه في الرصيف الغربي",
                 "priority": "urgent",
                 "status": "received",
             },
             {
-                "district": districts[1],
+                "district": districts[3],  # الميدان
                 "category": "waste",
                 "description": "حاويات القمامة لم تُفرغ منذ 3 أيام",
                 "priority": "normal",
                 "status": "submitted",
             },
             {
-                "district": districts[1],
+                "district": districts[4],  # القدم
                 "category": "roads",
                 "description": "حفرة كبيرة في الطريق الرئيسي",
                 "priority": "high",
                 "status": "submitted",
             },
         ]
-
-        import secrets
-        TRACKING_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
-
-        def gen_code():
-            return "".join(secrets.choice(TRACKING_CHARS) for _ in range(8))
 
         now = datetime.now(timezone.utc)
         for sr_data in sample_requests:
@@ -165,18 +192,18 @@ def seed():
             ))
 
         db.commit()
-        print("✅ Database seeded successfully.")
+        print("✅ تم تهيئة قاعدة البيانات بنجاح.")
         print()
-        print("Default credentials:")
-        print("  Municipal Admin : admin@mun.sa        / admin123")
-        print("  District Admin 1: district1@mun.sa    / pass123")
-        print("  District Admin 2: district2@mun.sa    / pass123")
-        print("  Staff 1         : staff1@mun.sa       / staff123")
-        print("  Staff 2         : staff2@mun.sa       / staff123")
+        print("بيانات الدخول:")
+        print("  المحافظ     : governor@damascus.sy       / gov123")
+        print("  رئيس البلدية: mayor@damascus.sy          / mayor123")
+        print("  مختار دمر   : mukhtar.damar@damascus.sy  / mukhtar123")
+        print("  مختار المزة : mukhtar.mazzeh@damascus.sy / mukhtar123")
+        print("  مختار الميدان: mukhtar.midan@damascus.sy / mukhtar123")
 
     except Exception as e:
         db.rollback()
-        print(f"❌ Seeding failed: {e}")
+        print(f"❌ فشل التهيئة: {e}")
         raise
     finally:
         db.close()

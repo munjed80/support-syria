@@ -49,8 +49,8 @@ def require_district_scope(
     request_district_id: UUID,
     current_user: User,
 ) -> None:
-    """Raise 403 if user is district_admin and the request is outside their district."""
-    if current_user.role == "district_admin":
+    """Raise 403 if user is district_admin/mukhtar and the request is outside their district."""
+    if current_user.role in ("district_admin", "mukhtar"):
         if str(current_user.district_id) != str(request_district_id):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -63,7 +63,7 @@ def require_municipality_scope(
     current_user: User,
 ) -> None:
     """Raise 403 if user doesn't belong to the request's municipality."""
-    if str(current_user.municipality_id) != str(request_municipality_id):
+    if current_user.municipality_id and str(current_user.municipality_id) != str(request_municipality_id):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access to this municipality is not allowed",
