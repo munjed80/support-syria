@@ -855,7 +855,7 @@ function MayorsView({ user }: { user: User }) {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [municipalityId, setMunicipalityId] = useState('')
-  const [createdPassword, setCreatedPassword] = useState<string | null>(null)
+  const [createdCredentials, setCreatedCredentials] = useState<{ username: string; password: string } | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
   useEffect(() => {
@@ -871,13 +871,15 @@ function MayorsView({ user }: { user: User }) {
     }
     setSubmitting(true)
     try {
+      const savedUsername = username.trim()
+      const savedPassword = password
       await api.createMayor({
         full_name: fullName.trim(),
-        username: username.trim(),
-        password,
+        username: savedUsername,
+        password: savedPassword,
         municipality_id: municipalityId,
       })
-      setCreatedPassword(password)
+      setCreatedCredentials({ username: savedUsername, password: savedPassword })
       setFullName('')
       setUsername('')
       setPassword('')
@@ -891,6 +893,12 @@ function MayorsView({ user }: { user: User }) {
     }
   }
 
+  const copyCredentials = (text: string) => {
+    navigator.clipboard.writeText(text)
+      .then(() => toast.success('تم النسخ'))
+      .catch(() => toast.error('تعذّر النسخ'))
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -901,15 +909,26 @@ function MayorsView({ user }: { user: User }) {
         </Button>
       </div>
 
-      {createdPassword && (
+      {createdCredentials && (
         <Card className="border-green-500/40 bg-green-50 dark:bg-green-950/20">
           <CardContent className="pt-4">
-            <p className="font-semibold text-green-700 dark:text-green-400 mb-1">تم إنشاء الحساب بنجاح</p>
-            <p className="text-sm text-muted-foreground">
-              كلمة المرور المؤقتة (احفظها الآن):&nbsp;
-              <span className="font-mono font-bold">{createdPassword}</span>
-            </p>
-            <Button variant="outline" size="sm" className="mt-2" onClick={() => setCreatedPassword(null)}>
+            <p className="font-semibold text-green-700 dark:text-green-400 mb-2">تم إنشاء الحساب بنجاح – احفظ بيانات الدخول الآن</p>
+            <div className="space-y-2 text-sm">
+              <div className="flex items-center gap-2">
+                <span className="text-muted-foreground w-28">اسم المستخدم:</span>
+                <span className="font-mono font-bold">{createdCredentials.username}</span>
+                <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={() => copyCredentials(createdCredentials.username)}>نسخ</Button>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-muted-foreground w-28">كلمة المرور:</span>
+                <span className="font-mono font-bold">{createdCredentials.password}</span>
+                <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={() => copyCredentials(createdCredentials.password)}>نسخ</Button>
+              </div>
+              <div className="flex items-center gap-2 mt-1">
+                <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={() => copyCredentials(`${createdCredentials.username}\n${createdCredentials.password}`)}>نسخ الكل</Button>
+              </div>
+            </div>
+            <Button variant="outline" size="sm" className="mt-3" onClick={() => setCreatedCredentials(null)}>
               إغلاق
             </Button>
           </CardContent>
@@ -955,7 +974,7 @@ function MayorsView({ user }: { user: User }) {
         </Card>
       )}
 
-      {!showForm && !createdPassword && (
+      {!showForm && !createdCredentials && (
         <p className="text-muted-foreground text-sm">انقر على "إنشاء حساب رئيس بلدية" لإضافة حساب جديد.</p>
       )}
     </div>
@@ -972,7 +991,7 @@ function MukhtarsView({ user }: { user: User }) {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [districtId, setDistrictId] = useState('')
-  const [createdPassword, setCreatedPassword] = useState<string | null>(null)
+  const [createdCredentials, setCreatedCredentials] = useState<{ username: string; password: string } | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
   useEffect(() => {
@@ -988,13 +1007,15 @@ function MukhtarsView({ user }: { user: User }) {
     }
     setSubmitting(true)
     try {
+      const savedUsername = username.trim()
+      const savedPassword = password
       await api.createMukhtar({
         full_name: fullName.trim(),
-        username: username.trim(),
-        password,
+        username: savedUsername,
+        password: savedPassword,
         district_id: districtId,
       })
-      setCreatedPassword(password)
+      setCreatedCredentials({ username: savedUsername, password: savedPassword })
       setFullName('')
       setUsername('')
       setPassword('')
@@ -1008,6 +1029,12 @@ function MukhtarsView({ user }: { user: User }) {
     }
   }
 
+  const copyCredentials = (text: string) => {
+    navigator.clipboard.writeText(text)
+      .then(() => toast.success('تم النسخ'))
+      .catch(() => toast.error('تعذّر النسخ'))
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -1018,15 +1045,26 @@ function MukhtarsView({ user }: { user: User }) {
         </Button>
       </div>
 
-      {createdPassword && (
+      {createdCredentials && (
         <Card className="border-green-500/40 bg-green-50 dark:bg-green-950/20">
           <CardContent className="pt-4">
-            <p className="font-semibold text-green-700 dark:text-green-400 mb-1">تم إنشاء الحساب بنجاح</p>
-            <p className="text-sm text-muted-foreground">
-              كلمة المرور المؤقتة (احفظها الآن):&nbsp;
-              <span className="font-mono font-bold">{createdPassword}</span>
-            </p>
-            <Button variant="outline" size="sm" className="mt-2" onClick={() => setCreatedPassword(null)}>
+            <p className="font-semibold text-green-700 dark:text-green-400 mb-2">تم إنشاء الحساب بنجاح – احفظ بيانات الدخول الآن</p>
+            <div className="space-y-2 text-sm">
+              <div className="flex items-center gap-2">
+                <span className="text-muted-foreground w-28">اسم المستخدم:</span>
+                <span className="font-mono font-bold">{createdCredentials.username}</span>
+                <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={() => copyCredentials(createdCredentials.username)}>نسخ</Button>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-muted-foreground w-28">كلمة المرور:</span>
+                <span className="font-mono font-bold">{createdCredentials.password}</span>
+                <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={() => copyCredentials(createdCredentials.password)}>نسخ</Button>
+              </div>
+              <div className="flex items-center gap-2 mt-1">
+                <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={() => copyCredentials(`${createdCredentials.username}\n${createdCredentials.password}`)}>نسخ الكل</Button>
+              </div>
+            </div>
+            <Button variant="outline" size="sm" className="mt-3" onClick={() => setCreatedCredentials(null)}>
               إغلاق
             </Button>
           </CardContent>
@@ -1072,7 +1110,7 @@ function MukhtarsView({ user }: { user: User }) {
         </Card>
       )}
 
-      {!showForm && !createdPassword && (
+      {!showForm && !createdCredentials && (
         <p className="text-muted-foreground text-sm">انقر على "إنشاء حساب مختار" لإضافة حساب جديد.</p>
       )}
     </div>
