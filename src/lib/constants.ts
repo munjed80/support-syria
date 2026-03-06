@@ -9,11 +9,12 @@ export const CATEGORIES: Record<RequestCategory, string> = {
 }
 
 export const STATUSES: Record<RequestStatus, string> = {
-  submitted: 'مُرسلة',
-  received: 'مستلمة',
+  new: 'جديدة',
+  under_review: 'قيد الدراسة',
   in_progress: 'قيد المعالجة',
-  completed: 'منجزة',
-  rejected: 'مرفوضة'
+  resolved: 'تم الحل',
+  rejected: 'مرفوضة',
+  deferred: 'مؤجلة'
 }
 
 export const ROLES: Record<UserRole, string> = {
@@ -34,11 +35,12 @@ export const PRIORITIES: Record<Priority, string> = {
 }
 
 export const STATUS_COLORS: Record<RequestStatus, string> = {
-  submitted: 'bg-[oklch(0.60_0.01_240)] text-white',
-  received: 'bg-[oklch(0.55_0.10_250)] text-white',
+  new: 'bg-[oklch(0.60_0.01_240)] text-white',
+  under_review: 'bg-[oklch(0.55_0.10_250)] text-white',
   in_progress: 'bg-[oklch(0.65_0.13_65)] text-[oklch(0.25_0.05_60)]',
-  completed: 'bg-[oklch(0.60_0.15_145)] text-white',
-  rejected: 'bg-[oklch(0.55_0.18_25)] text-white'
+  resolved: 'bg-[oklch(0.60_0.15_145)] text-white',
+  rejected: 'bg-[oklch(0.55_0.18_25)] text-white',
+  deferred: 'bg-[oklch(0.60_0.08_280)] text-white'
 }
 
 export const PRIORITY_COLORS: Record<Priority, string> = {
@@ -163,7 +165,7 @@ export function generateId(): string {
 }
 
 export function isOverdue(request: { createdAt: string; status: RequestStatus; category: RequestCategory }): boolean {
-  if (request.status === 'completed' || request.status === 'rejected') {
+  if (request.status === 'resolved' || request.status === 'rejected' || request.status === 'deferred') {
     return false
   }
   
@@ -210,19 +212,57 @@ export function formatRelativeTime(dateString: string): string {
   return formatDate(dateString)
 }
 
-const STATUS_TRANSITIONS: Record<RequestStatus, RequestStatus[]> = {
-  submitted: ['received'],
-  received: ['in_progress'],
-  in_progress: ['completed', 'rejected'],
-  completed: [],
-  rejected: []
+// Role-based status transitions
+// Each role maps: from_status → allowed to_statuses
+export const ROLE_STATUS_TRANSITIONS: Record<string, Partial<Record<RequestStatus, RequestStatus[]>>> = {
+  mukhtar: {
+    new: ['under_review'],
+  },
+  district_admin: {
+    new: ['under_review'],
+  },
+  mayor: {
+    under_review: ['in_progress', 'rejected'],
+    in_progress:  ['resolved', 'deferred', 'rejected'],
+    deferred:     ['in_progress', 'rejected'],
+  },
+  municipal_admin: {
+    under_review: ['in_progress', 'rejected'],
+    in_progress:  ['resolved', 'deferred', 'rejected'],
+    deferred:     ['in_progress', 'rejected'],
+  },
+  governor: {
+    new:          ['under_review', 'in_progress', 'resolved', 'rejected', 'deferred'],
+    under_review: ['in_progress', 'resolved', 'rejected', 'deferred'],
+    in_progress:  ['resolved', 'rejected', 'deferred', 'under_review'],
+    resolved:     ['in_progress', 'rejected'],
+    rejected:     ['new', 'under_review'],
+    deferred:     ['in_progress', 'under_review', 'rejected'],
+  },
+  staff: {},
 }
 
-export function canTransitionTo(from: RequestStatus, to: RequestStatus): boolean {
+const STATUS_TRANSITIONS: Record<RequestStatus, RequestStatus[]> = {
+  new:          ['under_review'],
+  under_review: ['in_progress', 'rejected'],
+  in_progress:  ['resolved', 'deferred', 'rejected'],
+  resolved:     [],
+  rejected:     [],
+  deferred:     ['in_progress', 'rejected'],
+}
+
+export function canTransitionTo(from: RequestStatus, to: RequestStatus, role?: string): boolean {
+  if (role && ROLE_STATUS_TRANSITIONS[role]) {
+    const allowed = ROLE_STATUS_TRANSITIONS[role][from] || []
+    return allowed.includes(to)
+  }
   return STATUS_TRANSITIONS[from]?.includes(to) || false
 }
 
-export function getValidNextStatuses(current: RequestStatus): RequestStatus[] {
+export function getValidNextStatuses(current: RequestStatus, role?: string): RequestStatus[] {
+  if (role && ROLE_STATUS_TRANSITIONS[role]) {
+    return (ROLE_STATUS_TRANSITIONS[role][current] || []) as RequestStatus[]
+  }
   return STATUS_TRANSITIONS[current] || []
 }
 
@@ -233,7 +273,7 @@ export function shouldEscalatePriority(request: {
   category: RequestCategory
   priorityEscalatedAt?: string
 }): { shouldEscalate: boolean; newPriority: Priority | null; hoursSinceCreation: number } {
-  if (request.status === 'completed' || request.status === 'rejected') {
+  if (request.status === 'resolved' || request.status === 'rejected' || request.status === 'deferred') {
     return { shouldEscalate: false, newPriority: null, hoursSinceCreation: 0 }
   }
 
@@ -304,7 +344,7 @@ export function calculateSLAStatus(request: {
   closedAt?: string
   slaDeadline?: string
 }): 'met' | 'at_risk' | 'breached' {
-  if (request.status === 'completed' || request.status === 'rejected') {
+  if (request.status === 'resolved' || request.status === 'rejected' || request.status === 'deferred') {
     if (request.closedAt) {
       const closedDate = new Date(request.closedAt)
       const deadline = request.slaDeadline ? new Date(request.slaDeadline) : new Date(getSLADeadline(request))
@@ -382,7 +422,7 @@ export function getSLAComplianceRate(requests: Array<{
   status: RequestStatus
   slaStatus?: 'met' | 'at_risk' | 'breached'
 }>): number {
-  const closedRequests = requests.filter(r => r.status === 'completed' || r.status === 'rejected')
+  const closedRequests = requests.filter(r => r.status === 'resolved' || r.status === 'rejected' || r.status === 'deferred')
   if (closedRequests.length === 0) return 100
   
   const metSLA = closedRequests.filter(r => r.slaStatus === 'met').length
@@ -405,7 +445,7 @@ export function getSLAComplianceByCategory(
   }
 
   requests
-    .filter(r => r.status === 'completed' || r.status === 'rejected')
+    .filter(r => r.status === 'resolved' || r.status === 'rejected' || r.status === 'deferred')
     .forEach(request => {
       result[request.category].total++
       if (request.slaStatus === 'met') {

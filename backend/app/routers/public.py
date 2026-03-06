@@ -61,7 +61,7 @@ def submit_request(
 
     now = datetime.now(timezone.utc)
     sla_deadline = get_sla_deadline(now, payload.category, "normal")
-    sla_status = calculate_sla_status(now, payload.category, "normal", "submitted",
+    sla_status = calculate_sla_status(now, payload.category, "normal", "new",
                                        sla_deadline=sla_deadline)
 
     new_req = ServiceRequest(
@@ -69,7 +69,7 @@ def submit_request(
         district_id=district.id,
         category=payload.category,
         priority="normal",
-        status="submitted",
+        status="new",
         description=payload.description,
         tracking_code=code,
         address_text=payload.address_text,
@@ -84,7 +84,7 @@ def submit_request(
     db.add(RequestUpdate(
         request_id=new_req.id,
         message="تم استلام الطلب",
-        to_status="submitted",
+        to_status="new",
         is_internal=False,
     ))
     db.commit()

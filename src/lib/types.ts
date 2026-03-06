@@ -2,7 +2,7 @@ export type UserRole = 'citizen' | 'district_admin' | 'municipal_admin' | 'staff
 
 export type RequestCategory = 'lighting' | 'water' | 'waste' | 'roads' | 'other'
 
-export type RequestStatus = 'submitted' | 'received' | 'in_progress' | 'completed' | 'rejected'
+export type RequestStatus = 'new' | 'under_review' | 'in_progress' | 'resolved' | 'rejected' | 'deferred'
 
 export type Priority = 'low' | 'normal' | 'high' | 'urgent'
 

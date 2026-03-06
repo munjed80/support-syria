@@ -462,8 +462,8 @@ function RequestsView({ user }: { user: User }) {
   const stats = useMemo(() => {
     return {
       total,
-      open: requests.filter(r => r.status !== 'completed' && r.status !== 'rejected').length,
-      completed: requests.filter(r => r.status === 'completed').length,
+      open: requests.filter(r => r.status !== 'resolved' && r.status !== 'rejected' && r.status !== 'deferred').length,
+      resolved: requests.filter(r => r.status === 'resolved').length,
       urgent: requests.filter(r => r.priority === 'urgent').length,
     }
   }, [requests, total])
@@ -504,7 +504,7 @@ function RequestsView({ user }: { user: User }) {
         <Card>
           <CardHeader className="pb-2">
             <CardDescription>المنجزة</CardDescription>
-            <CardTitle className="text-3xl text-[oklch(0.60_0.15_145)]">{stats.completed}</CardTitle>
+            <CardTitle className="text-3xl text-[oklch(0.60_0.15_145)]">{stats.resolved}</CardTitle>
           </CardHeader>
           <CardContent><Buildings size={24} className="text-muted-foreground" /></CardContent>
         </Card>

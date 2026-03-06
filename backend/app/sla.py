@@ -37,7 +37,7 @@ def calculate_sla_status(
     """Return 'met', 'at_risk', or 'breached'."""
     deadline = sla_deadline or get_sla_deadline(created_at, category, priority)
 
-    if status in ("completed", "rejected"):
+    if status in ("resolved", "rejected", "deferred"):
         reference = closed_at or datetime.now(timezone.utc)
         return "met" if reference <= deadline else "breached"
 
@@ -76,15 +76,50 @@ def should_escalate_priority(
     return False, None
 
 
-# Valid status transitions (mirrors frontend STATUS_TRANSITIONS)
+# Valid status transitions per role
+# Base transitions (role-independent direction)
 STATUS_TRANSITIONS: dict[str, list[str]] = {
-    "submitted":  ["received"],
-    "received":   ["in_progress"],
-    "in_progress": ["completed", "rejected"],
-    "completed":  [],
-    "rejected":   [],
+    "new":          ["under_review"],
+    "under_review": ["in_progress", "rejected"],
+    "in_progress":  ["resolved", "deferred", "rejected"],
+    "resolved":     [],
+    "rejected":     [],
+    "deferred":     ["in_progress", "rejected"],
+}
+
+# Role-based allowed transitions
+ROLE_TRANSITIONS: dict[str, dict[str, list[str]]] = {
+    "mukhtar": {
+        "new": ["under_review"],
+    },
+    "district_admin": {
+        "new": ["under_review"],
+    },
+    "mayor": {
+        "under_review": ["in_progress", "rejected"],
+        "in_progress":  ["resolved", "deferred", "rejected"],
+        "deferred":     ["in_progress", "rejected"],
+    },
+    "municipal_admin": {
+        "under_review": ["in_progress", "rejected"],
+        "in_progress":  ["resolved", "deferred", "rejected"],
+        "deferred":     ["in_progress", "rejected"],
+    },
+    "governor": {
+        # Governor can move to any status
+        "new":          ["under_review", "in_progress", "resolved", "rejected", "deferred"],
+        "under_review": ["in_progress", "resolved", "rejected", "deferred"],
+        "in_progress":  ["resolved", "rejected", "deferred", "under_review"],
+        "resolved":     ["in_progress", "rejected"],
+        "rejected":     ["new", "under_review"],
+        "deferred":     ["in_progress", "under_review", "rejected"],
+    },
+    "staff": {},
 }
 
 
-def can_transition(from_status: str, to_status: str) -> bool:
-    return to_status in STATUS_TRANSITIONS.get(from_status, [])
+def can_transition(from_status: str, to_status: str, role: str = "governor") -> bool:
+    """Check if a role can transition from from_status to to_status."""
+    role_transitions = ROLE_TRANSITIONS.get(role, {})
+    allowed = role_transitions.get(from_status, [])
+    return to_status in allowed
