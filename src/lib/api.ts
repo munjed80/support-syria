@@ -132,6 +132,33 @@ export interface PaginatedRequests {
   page_size: number
 }
 
+// ─── Monthly Reports ──────────────────────────────────────────────────────────
+
+export interface ReportCountEntry {
+  name: string
+  count: number
+}
+
+export interface MonthlyReportPeriod {
+  month: number
+  year: number
+}
+
+export interface MonthlyReport {
+  period: MonthlyReportPeriod
+  total: number
+  open: number
+  in_progress: number
+  resolved: number
+  urgent: number
+  overdue: number
+  most_common_category: string | null
+  most_assigned_team: string | null
+  top_district: string | null
+  by_category: ReportCountEntry[]
+  by_status: ReportCountEntry[]
+}
+
 // ─── Dashboard response shapes (one per role) ─────────────────────────────────
 
 export interface DashboardCountEntry {
@@ -566,6 +593,42 @@ class ApiClient {
     return this.request<void>(`/admin/requests/${requestId}/materials/${materialId}`, {
       method: 'DELETE',
     })
+  }
+
+  // ── Monthly Reports ───────────────────────────────────────────────────────
+
+  async getDistrictMonthlyReport(params: {
+    month: number
+    year: number
+    district_id?: string
+  }): Promise<MonthlyReport> {
+    const p = new URLSearchParams()
+    p.set('month', String(params.month))
+    p.set('year', String(params.year))
+    if (params.district_id) p.set('district_id', params.district_id)
+    return this.request<MonthlyReport>(`/admin/reports/district?${p.toString()}`)
+  }
+
+  async getMunicipalityMonthlyReport(params: {
+    month: number
+    year: number
+    municipality_id?: string
+  }): Promise<MonthlyReport> {
+    const p = new URLSearchParams()
+    p.set('month', String(params.month))
+    p.set('year', String(params.year))
+    if (params.municipality_id) p.set('municipality_id', params.municipality_id)
+    return this.request<MonthlyReport>(`/admin/reports/municipality?${p.toString()}`)
+  }
+
+  async getGovernorateMonthlyReport(params: {
+    month: number
+    year: number
+  }): Promise<MonthlyReport> {
+    const p = new URLSearchParams()
+    p.set('month', String(params.month))
+    p.set('year', String(params.year))
+    return this.request<MonthlyReport>(`/admin/reports/governorate?${p.toString()}`)
   }
 }
 

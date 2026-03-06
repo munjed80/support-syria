@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { api, toServiceRequest, toDistrict, toMunicipality, MunicipalityOut, DistrictOut, DashboardData, MukhtarDashboard, MayorDashboard, GovernorDashboard } from '@/lib/api'
+import { api, toServiceRequest, toDistrict, toMunicipality, MunicipalityOut, DistrictOut, DashboardData, MukhtarDashboard, MayorDashboard, GovernorDashboard, MonthlyReport } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -1309,13 +1309,326 @@ function MukhtarsView({ user }: { user: User }) {
 }
 
 
+// ─── Monthly Reports ──────────────────────────────────────────────────────────
+
+const ARABIC_MONTHS = [
+  'يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو',
+  'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر',
+]
+
+function MonthlyReportsView({ user }: { user: User }) {
+  const isGovernor = user.role === 'governor'
+  const isMayor = user.role === 'mayor' || user.role === 'municipal_admin'
+  const isMukhtar = user.role === 'mukhtar' || user.role === 'district_admin'
+
+  const now = new Date()
+  const [month, setMonth] = useState(now.getMonth() + 1)
+  const [year, setYear] = useState(now.getFullYear())
+  const [reportType, setReportType] = useState<'district' | 'municipality' | 'governorate'>(
+    isGovernor ? 'governorate' : isMayor ? 'municipality' : 'district',
+  )
+  const [selectedMunicipality, setSelectedMunicipality] = useState<string>('')
+  const [selectedDistrict, setSelectedDistrict] = useState<string>('')
+  const [municipalities, setMunicipalities] = useState<MunicipalityOut[]>([])
+  const [districts, setDistricts] = useState<DistrictOut[]>([])
+  const [report, setReport] = useState<MonthlyReport | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (isGovernor) {
+      api.getMunicipalities().then(setMunicipalities).catch(() => {})
+      api.getAdminDistricts().then(setDistricts).catch(() => {})
+    } else if (isMayor) {
+      api.getAdminDistricts().then(setDistricts).catch(() => {})
+    }
+  }, [isGovernor, isMayor])
+
+  const filteredDistricts = isGovernor && selectedMunicipality
+    ? districts.filter((d) => d.municipality_id === selectedMunicipality)
+    : districts
+
+  const fetchReport = async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      let data: MonthlyReport
+      if (reportType === 'governorate') {
+        data = await api.getGovernorateMonthlyReport({ month, year })
+      } else if (reportType === 'municipality') {
+        data = await api.getMunicipalityMonthlyReport({
+          month,
+          year,
+          municipality_id: isGovernor ? selectedMunicipality || undefined : undefined,
+        })
+      } else {
+        data = await api.getDistrictMonthlyReport({
+          month,
+          year,
+          district_id: (isGovernor || isMayor) ? selectedDistrict || undefined : undefined,
+        })
+      }
+      setReport(data)
+    } catch (e: any) {
+      setError(e.message || 'تعذّر تحميل التقرير')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const yearOptions: number[] = []
+  for (let y = now.getFullYear(); y >= now.getFullYear() - 3; y--) {
+    yearOptions.push(y)
+  }
+
+  return (
+    <div className="space-y-6">
+      <h2 className="text-xl font-semibold">التقارير الشهرية</h2>
+
+      {/* Selectors */}
+      <Card>
+        <CardContent className="pt-4">
+          <div className="flex flex-wrap gap-3 items-end">
+            {/* Month */}
+            <div className="flex flex-col gap-1">
+              <Label className="text-sm text-muted-foreground">الشهر</Label>
+              <Select value={String(month)} onValueChange={(v) => setMonth(Number(v))}>
+                <SelectTrigger className="w-36">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {ARABIC_MONTHS.map((name, idx) => (
+                    <SelectItem key={idx + 1} value={String(idx + 1)}>{name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Year */}
+            <div className="flex flex-col gap-1">
+              <Label className="text-sm text-muted-foreground">السنة</Label>
+              <Select value={String(year)} onValueChange={(v) => setYear(Number(v))}>
+                <SelectTrigger className="w-28">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {yearOptions.map((y) => (
+                    <SelectItem key={y} value={String(y)}>{y}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Report type (governor/mayor can choose) */}
+            {(isGovernor || isMayor) && (
+              <div className="flex flex-col gap-1">
+                <Label className="text-sm text-muted-foreground">نوع التقرير</Label>
+                <Select value={reportType} onValueChange={(v) => setReportType(v as any)}>
+                  <SelectTrigger className="w-44">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {isGovernor && <SelectItem value="governorate">المحافظة</SelectItem>}
+                    {(isGovernor || isMayor) && <SelectItem value="municipality">البلدية</SelectItem>}
+                    <SelectItem value="district">الحي</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            {/* Municipality selector (governor only, for municipality/district reports) */}
+            {isGovernor && (reportType === 'municipality' || reportType === 'district') && (
+              <div className="flex flex-col gap-1">
+                <Label className="text-sm text-muted-foreground">البلدية</Label>
+                <Select value={selectedMunicipality} onValueChange={(v) => { setSelectedMunicipality(v); setSelectedDistrict('') }}>
+                  <SelectTrigger className="w-44">
+                    <SelectValue placeholder="اختر البلدية" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {municipalities.map((m) => (
+                      <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            {/* District selector (governor/mayor for district reports) */}
+            {(isGovernor || isMayor) && reportType === 'district' && (
+              <div className="flex flex-col gap-1">
+                <Label className="text-sm text-muted-foreground">الحي</Label>
+                <Select value={selectedDistrict} onValueChange={setSelectedDistrict}>
+                  <SelectTrigger className="w-44">
+                    <SelectValue placeholder="اختر الحي" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {filteredDistricts.map((d) => (
+                      <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            <Button onClick={fetchReport} disabled={loading} className="self-end">
+              {loading ? 'جارٍ التحميل...' : 'عرض التقرير'}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {error && (
+        <Alert variant="destructive">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+
+      {report && (
+        <div className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            التقرير الشهري — {ARABIC_MONTHS[report.period.month - 1]} {report.period.year}
+          </p>
+
+          {/* Summary cards */}
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+            <Card>
+              <CardHeader className="pb-2">
+                <CardDescription>إجمالي الشكاوى</CardDescription>
+                <CardTitle className="text-3xl">{report.total}</CardTitle>
+              </CardHeader>
+              <CardContent><ChartBar size={22} className="text-muted-foreground" /></CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-2">
+                <CardDescription>مفتوحة</CardDescription>
+                <CardTitle className="text-3xl text-[oklch(0.55_0.10_250)]">{report.open}</CardTitle>
+              </CardHeader>
+              <CardContent><Buildings size={22} className="text-muted-foreground" /></CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-2">
+                <CardDescription>قيد المعالجة</CardDescription>
+                <CardTitle className="text-3xl text-[oklch(0.65_0.13_65)]">{report.in_progress}</CardTitle>
+              </CardHeader>
+              <CardContent><Timer size={22} className="text-muted-foreground" /></CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-2">
+                <CardDescription>منجزة</CardDescription>
+                <CardTitle className="text-3xl text-[oklch(0.60_0.15_145)]">{report.resolved}</CardTitle>
+              </CardHeader>
+              <CardContent><CheckCircle size={22} className="text-muted-foreground" /></CardContent>
+            </Card>
+            <Card className="border-destructive/50">
+              <CardHeader className="pb-2">
+                <CardDescription>عاجلة</CardDescription>
+                <CardTitle className="text-3xl text-destructive">{report.urgent}</CardTitle>
+              </CardHeader>
+              <CardContent><Warning size={22} className="text-destructive" /></CardContent>
+            </Card>
+            <Card className="border-orange-400/50">
+              <CardHeader className="pb-2">
+                <CardDescription>متأخّرة</CardDescription>
+                <CardTitle className="text-3xl text-orange-600">{report.overdue}</CardTitle>
+              </CardHeader>
+              <CardContent><Timer size={22} className="text-orange-500" /></CardContent>
+            </Card>
+          </div>
+
+          {/* Highlights row */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {report.most_common_category && (
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardDescription>أكثر الفئات تكراراً</CardDescription>
+                  <CardTitle className="text-lg">
+                    {CATEGORIES[report.most_common_category as keyof typeof CATEGORIES] ?? report.most_common_category}
+                  </CardTitle>
+                </CardHeader>
+              </Card>
+            )}
+            {report.most_assigned_team && (
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardDescription>أكثر الفرق نشاطاً</CardDescription>
+                  <CardTitle className="text-lg">
+                    {RESPONSIBLE_TEAMS[report.most_assigned_team] ?? report.most_assigned_team}
+                  </CardTitle>
+                </CardHeader>
+              </Card>
+            )}
+            {report.top_district && (
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardDescription>أكثر الأحياء شكاوى</CardDescription>
+                  <CardTitle className="text-lg">{report.top_district}</CardTitle>
+                </CardHeader>
+              </Card>
+            )}
+          </div>
+
+          {/* Grouped stats */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* By category */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">توزيع الشكاوى حسب الفئة</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {report.by_category.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">لا بيانات</p>
+                ) : (
+                  <div className="space-y-2">
+                    {report.by_category.map((entry) => (
+                      <div key={entry.name} className="flex items-center justify-between">
+                        <span className="text-sm">
+                          {CATEGORIES[entry.name as keyof typeof CATEGORIES] ?? entry.name}
+                        </span>
+                        <Badge variant="outline">{entry.count}</Badge>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* By status */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">توزيع الشكاوى حسب الحالة</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {report.by_status.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">لا بيانات</p>
+                ) : (
+                  <div className="space-y-2">
+                    {report.by_status.map((entry) => (
+                      <div key={entry.name} className="flex items-center justify-between">
+                        <Badge className={STATUS_COLORS[entry.name as keyof typeof STATUS_COLORS] ?? ''}>
+                          {STATUSES[entry.name as keyof typeof STATUSES] ?? entry.name}
+                        </Badge>
+                        <span className="text-sm font-medium">{entry.count}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+
 // ─── Main AdminDashboard ──────────────────────────────────────────────────────
 
 export function AdminDashboard({ user, onLogout }: AdminDashboardProps) {
   const isGovernor = user.role === 'governor'
   const isMayor = user.role === 'mayor'
 
-  const [activeTab, setActiveTab] = useState<'requests' | 'municipalities' | 'mayors' | 'districts' | 'mukhtars'>('requests')
+  const [activeTab, setActiveTab] = useState<'requests' | 'municipalities' | 'mayors' | 'districts' | 'mukhtars' | 'reports'>('requests')
 
   const tabs: { key: typeof activeTab; label: string; show: boolean }[] = [
     { key: 'requests', label: 'الطلبات', show: true },
@@ -1323,6 +1636,7 @@ export function AdminDashboard({ user, onLogout }: AdminDashboardProps) {
     { key: 'mayors', label: 'رؤساء البلديات', show: isGovernor },
     { key: 'districts', label: 'الأحياء', show: isMayor },
     { key: 'mukhtars', label: 'مخاتير الأحياء', show: isMayor },
+    { key: 'reports', label: 'التقارير الشهرية', show: true },
   ]
 
   return (
@@ -1367,6 +1681,7 @@ export function AdminDashboard({ user, onLogout }: AdminDashboardProps) {
         {activeTab === 'mayors' && isGovernor && <MayorsView user={user} />}
         {activeTab === 'districts' && isMayor && <DistrictsView user={user} />}
         {activeTab === 'mukhtars' && isMayor && <MukhtarsView user={user} />}
+        {activeTab === 'reports' && <MonthlyReportsView user={user} />}
       </main>
     </div>
   )
