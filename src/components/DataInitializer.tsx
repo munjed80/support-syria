@@ -37,47 +37,47 @@ export function DataInitializer() {
       const newUsers: User[] = [
         {
           id: generateId(),
-          email: 'admin@mun.sa',
-          passwordHash: 'admin123',
+          username: 'admin_mun',
+          fullName: 'أحمد المدير العام',
           role: 'municipal_admin',
           municipalityId: munId,
-          name: 'أحمد المدير العام'
+          isActive: true,
         },
         {
           id: generateId(),
-          email: 'district1@mun.sa',
-          passwordHash: 'pass123',
+          username: 'district1_admin',
+          fullName: 'خالد مدير حي العليا',
           role: 'district_admin',
           municipalityId: munId,
           districtId: newDistricts[0].id,
-          name: 'خالد مدير حي العليا'
+          isActive: true,
         },
         {
           id: generateId(),
-          email: 'district2@mun.sa',
-          passwordHash: 'pass123',
+          username: 'district2_admin',
+          fullName: 'عبدالله مدير حي الملز',
           role: 'district_admin',
           municipalityId: munId,
           districtId: newDistricts[1].id,
-          name: 'عبدالله مدير حي الملز'
+          isActive: true,
         },
         {
           id: generateId(),
-          email: 'staff1@mun.sa',
-          passwordHash: 'staff123',
+          username: 'staff1',
+          fullName: 'محمد الفني - العليا',
           role: 'staff',
           municipalityId: munId,
           districtId: newDistricts[0].id,
-          name: 'محمد الفني - العليا'
+          isActive: true,
         },
         {
           id: generateId(),
-          email: 'staff2@mun.sa',
-          passwordHash: 'staff123',
+          username: 'staff2',
+          fullName: 'سعد الفني - الملز',
           role: 'staff',
           municipalityId: munId,
           districtId: newDistricts[1].id,
-          name: 'سعد الفني - الملز'
+          isActive: true,
         }
       ]
       setUsers(newUsers)

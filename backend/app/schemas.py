@@ -20,7 +20,7 @@ class UserRole(str):
 # ─── Auth ─────────────────────────────────────────────────────────────────────
 
 class LoginRequest(BaseModel):
-    email: str
+    username: str
     password: str
 
 
@@ -31,12 +31,13 @@ class TokenResponse(BaseModel):
 
 class UserOut(BaseModel):
     id: UUID
-    email: str
+    username: str
+    full_name: str
     role: str
     governorate_id: Optional[UUID] = None
     municipality_id: Optional[UUID] = None
     district_id: Optional[UUID] = None
-    name: str
+    is_active: bool = True
 
     class Config:
         from_attributes = True
@@ -219,3 +220,19 @@ class PaginatedRequests(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+# ─── User management ──────────────────────────────────────────────────────────
+
+class CreateMayorRequest(BaseModel):
+    full_name: str
+    username: str
+    password: str
+    municipality_id: UUID
+
+
+class CreateMukhtarRequest(BaseModel):
+    full_name: str
+    username: str
+    password: str
+    district_id: UUID

@@ -60,7 +60,8 @@ class User(Base):
     __tablename__ = "users"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    email = Column(String(255), nullable=False, unique=True)
+    username = Column(String(255), nullable=False, unique=True, index=True)
+    full_name = Column(String(255), nullable=False)
     password_hash = Column(String(255), nullable=False)
     role = Column(
         Enum(
@@ -73,12 +74,20 @@ class User(Base):
     governorate_id = Column(UUID(as_uuid=True), ForeignKey("governorates.id"), nullable=True)
     municipality_id = Column(UUID(as_uuid=True), ForeignKey("municipalities.id"), nullable=True)
     district_id = Column(UUID(as_uuid=True), ForeignKey("districts.id"), nullable=True)
-    name = Column(String(255), nullable=False)
+    is_active = Column(Boolean, default=True, nullable=False)
+    created_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    must_change_password = Column(Boolean, default=True, nullable=False)
     created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+    # Keep `name` as a computed property for backward compatibility
+    @property
+    def name(self) -> str:
+        return self.full_name
 
     governorate = relationship("Governorate", back_populates="users")
     municipality = relationship("Municipality", back_populates="users")
     district = relationship("District", back_populates="users")
+    created_by = relationship("User", foreign_keys=[created_by_user_id], remote_side="User.id")
     audit_logs = relationship("AuditLog", back_populates="actor")
 
 

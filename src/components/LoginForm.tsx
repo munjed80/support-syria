@@ -1,5 +1,4 @@
 import { useState } from 'react'
-import { useKV } from '@github/spark/hooks'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -8,27 +7,27 @@ import { SignIn } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 
 interface LoginFormProps {
-  onLogin: (email: string, password: string) => Promise<boolean>
+  onLogin: (username: string, password: string) => Promise<boolean>
 }
 
 export function LoginForm({ onLogin }: LoginFormProps) {
-  const [email, setEmail] = useState('')
+  const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     
-    if (!email || !password) {
+    if (!username || !password) {
       toast.error('يرجى ملء جميع الحقول')
       return
     }
 
     setLoading(true)
     try {
-      const success = await onLogin(email, password)
+      const success = await onLogin(username, password)
       if (!success) {
-        toast.error('البريد الإلكتروني أو كلمة المرور غير صحيحة')
+        toast.error('اسم المستخدم أو كلمة المرور غير صحيحة')
       }
     } finally {
       setLoading(false)
@@ -36,7 +35,7 @@ export function LoginForm({ onLogin }: LoginFormProps) {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4">
+    <div className="min-h-screen flex items-center justify-center p-4" dir="rtl">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
           <CardTitle className="text-2xl">تسجيل الدخول</CardTitle>
@@ -45,14 +44,15 @@ export function LoginForm({ onLogin }: LoginFormProps) {
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="email">البريد الإلكتروني</Label>
+              <Label htmlFor="username">اسم المستخدم</Label>
               <Input
-                id="email"
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="admin@municipality.sa"
+                id="username"
+                type="text"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                placeholder="gov_damascus"
                 dir="ltr"
+                autoComplete="username"
               />
             </div>
 
@@ -65,6 +65,7 @@ export function LoginForm({ onLogin }: LoginFormProps) {
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••"
                 dir="ltr"
+                autoComplete="current-password"
               />
             </div>
 
@@ -81,9 +82,9 @@ export function LoginForm({ onLogin }: LoginFormProps) {
           <div className="mt-6 p-4 bg-muted rounded-lg text-sm">
             <p className="font-semibold mb-2">حسابات تجريبية:</p>
             <div className="space-y-1 text-muted-foreground">
-              <p>محافظ: <span className="font-mono">governor@damascus.sy</span> / <span className="font-mono">gov123</span></p>
-              <p>رئيس بلدية: <span className="font-mono">mayor@damascus.sy</span> / <span className="font-mono">mayor123</span></p>
-              <p>مختار: <span className="font-mono">mukhtar.damar@damascus.sy</span> / <span className="font-mono">mukhtar123</span></p>
+              <p>محافظ: <span className="font-mono">gov_damascus</span> / <span className="font-mono">password123</span></p>
+              <p>رئيس بلدية: <span className="font-mono">mayor_damascus</span> / <span className="font-mono">password123</span></p>
+              <p>مختار: <span className="font-mono">mukhtar_mezzeh</span> / <span className="font-mono">password123</span></p>
             </div>
           </div>
         </CardContent>

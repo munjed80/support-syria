@@ -66,46 +66,46 @@ def seed():
         # Users
         users_data = [
             {
-                "email": "governor@damascus.sy",
-                "password": "gov123",
+                "username": "gov_damascus",
+                "password": "password123",
                 "role": "governor",
-                "name": "المحافظ - محافظة دمشق",
+                "full_name": "المحافظ - محافظة دمشق",
                 "governorate_id": gov.id,
                 "municipality_id": None,
                 "district_id": None,
             },
             {
-                "email": "mayor@damascus.sy",
-                "password": "mayor123",
+                "username": "mayor_damascus",
+                "password": "password123",
                 "role": "mayor",
-                "name": "رئيس بلدية دمشق",
+                "full_name": "رئيس بلدية دمشق",
                 "governorate_id": None,
                 "municipality_id": mun.id,
                 "district_id": None,
             },
             {
-                "email": "mukhtar.damar@damascus.sy",
-                "password": "mukhtar123",
+                "username": "mukhtar_damar",
+                "password": "password123",
                 "role": "mukhtar",
-                "name": "مختار حي دمر",
+                "full_name": "مختار حي دمر",
                 "governorate_id": None,
                 "municipality_id": mun.id,
                 "district_id": districts[0].id,  # دمر
             },
             {
-                "email": "mukhtar.mazzeh@damascus.sy",
-                "password": "mukhtar123",
+                "username": "mukhtar_mezzeh",
+                "password": "password123",
                 "role": "mukhtar",
-                "name": "مختار حي المزة",
+                "full_name": "مختار حي المزة",
                 "governorate_id": None,
                 "municipality_id": mun.id,
                 "district_id": districts[1].id,  # المزة
             },
             {
-                "email": "mukhtar.midan@damascus.sy",
-                "password": "mukhtar123",
+                "username": "mukhtar_midan",
+                "password": "password123",
                 "role": "mukhtar",
-                "name": "مختار حي الميدان",
+                "full_name": "مختار حي الميدان",
                 "governorate_id": None,
                 "municipality_id": mun.id,
                 "district_id": districts[3].id,  # الميدان
@@ -114,13 +114,15 @@ def seed():
 
         for u in users_data:
             user = User(
-                email=u["email"],
+                username=u["username"],
+                full_name=u["full_name"],
                 password_hash=hash_password(u["password"]),
                 role=u["role"],
                 governorate_id=u["governorate_id"],
                 municipality_id=u["municipality_id"],
                 district_id=u["district_id"],
-                name=u["name"],
+                is_active=True,
+                must_change_password=False,
             )
             db.add(user)
 
@@ -194,12 +196,12 @@ def seed():
         db.commit()
         print("✅ تم تهيئة قاعدة البيانات بنجاح.")
         print()
-        print("بيانات الدخول:")
-        print("  المحافظ     : governor@damascus.sy       / gov123")
-        print("  رئيس البلدية: mayor@damascus.sy          / mayor123")
-        print("  مختار دمر   : mukhtar.damar@damascus.sy  / mukhtar123")
-        print("  مختار المزة : mukhtar.mazzeh@damascus.sy / mukhtar123")
-        print("  مختار الميدان: mukhtar.midan@damascus.sy / mukhtar123")
+        print("بيانات الدخول (اسم المستخدم / كلمة المرور):")
+        print("  المحافظ      : gov_damascus    / password123")
+        print("  رئيس البلدية : mayor_damascus  / password123")
+        print("  مختار المزة  : mukhtar_mezzeh  / password123")
+        print("  مختار دمر    : mukhtar_damar   / password123")
+        print("  مختار الميدان: mukhtar_midan   / password123")
 
     except Exception as e:
         db.rollback()

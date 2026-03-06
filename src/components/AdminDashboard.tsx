@@ -846,18 +846,254 @@ function RequestsView({ user }: { user: User }) {
   )
 }
 
+// ─── Mayors Management (Governor) ────────────────────────────────────────────
+
+function MayorsView({ user }: { user: User }) {
+  const [municipalities, setMunicipalities] = useState<{ id: string; name: string }[]>([])
+  const [showForm, setShowForm] = useState(false)
+  const [fullName, setFullName] = useState('')
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
+  const [municipalityId, setMunicipalityId] = useState('')
+  const [createdPassword, setCreatedPassword] = useState<string | null>(null)
+  const [submitting, setSubmitting] = useState(false)
+
+  useEffect(() => {
+    api.getMunicipalities()
+      .then((list) => setMunicipalities(list.map((m) => ({ id: m.id, name: m.name }))))
+      .catch(() => toast.error('تعذّر تحميل البلديات'))
+  }, [])
+
+  const handleCreate = async () => {
+    if (!fullName.trim() || !username.trim() || !password.trim() || !municipalityId) {
+      toast.error('يرجى ملء جميع الحقول')
+      return
+    }
+    setSubmitting(true)
+    try {
+      await api.createMayor({
+        full_name: fullName.trim(),
+        username: username.trim(),
+        password,
+        municipality_id: municipalityId,
+      })
+      setCreatedPassword(password)
+      setFullName('')
+      setUsername('')
+      setPassword('')
+      setMunicipalityId('')
+      setShowForm(false)
+      toast.success('تم إنشاء حساب رئيس البلدية')
+    } catch (e: any) {
+      toast.error(e.message || 'فشل إنشاء الحساب')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h2 className="text-xl font-semibold">رؤساء البلديات</h2>
+        <Button onClick={() => setShowForm(true)} size="sm">
+          <Plus className="ml-2" size={16} />
+          إنشاء حساب رئيس بلدية
+        </Button>
+      </div>
+
+      {createdPassword && (
+        <Card className="border-green-500/40 bg-green-50 dark:bg-green-950/20">
+          <CardContent className="pt-4">
+            <p className="font-semibold text-green-700 dark:text-green-400 mb-1">تم إنشاء الحساب بنجاح</p>
+            <p className="text-sm text-muted-foreground">
+              كلمة المرور المؤقتة (احفظها الآن):&nbsp;
+              <span className="font-mono font-bold">{createdPassword}</span>
+            </p>
+            <Button variant="outline" size="sm" className="mt-2" onClick={() => setCreatedPassword(null)}>
+              إغلاق
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {showForm && (
+        <Card className="border-primary/30">
+          <CardHeader>
+            <CardTitle className="text-base">بيانات رئيس البلدية الجديد</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="space-y-1">
+              <Label>الاسم الكامل</Label>
+              <Input value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="رئيس بلدية ..." dir="rtl" />
+            </div>
+            <div className="space-y-1">
+              <Label>اسم المستخدم</Label>
+              <Input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="mayor_..." dir="ltr" />
+            </div>
+            <div className="space-y-1">
+              <Label>كلمة المرور</Label>
+              <Input value={password} onChange={(e) => setPassword(e.target.value)} type="text" placeholder="كلمة المرور المؤقتة" dir="ltr" />
+            </div>
+            <div className="space-y-1">
+              <Label>البلدية</Label>
+              <Select value={municipalityId} onValueChange={setMunicipalityId}>
+                <SelectTrigger dir="rtl">
+                  <SelectValue placeholder="اختر البلدية" />
+                </SelectTrigger>
+                <SelectContent>
+                  {municipalities.map((m) => (
+                    <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex gap-2">
+              <Button onClick={handleCreate} disabled={submitting}>حفظ</Button>
+              <Button variant="outline" onClick={() => setShowForm(false)}>إلغاء</Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {!showForm && !createdPassword && (
+        <p className="text-muted-foreground text-sm">انقر على "إنشاء حساب رئيس بلدية" لإضافة حساب جديد.</p>
+      )}
+    </div>
+  )
+}
+
+
+// ─── Mukhtars Management (Mayor) ─────────────────────────────────────────────
+
+function MukhtarsView({ user }: { user: User }) {
+  const [districts, setDistricts] = useState<{ id: string; name: string }[]>([])
+  const [showForm, setShowForm] = useState(false)
+  const [fullName, setFullName] = useState('')
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
+  const [districtId, setDistrictId] = useState('')
+  const [createdPassword, setCreatedPassword] = useState<string | null>(null)
+  const [submitting, setSubmitting] = useState(false)
+
+  useEffect(() => {
+    api.getAdminDistricts()
+      .then((list) => setDistricts(list.map((d) => ({ id: d.id, name: d.name }))))
+      .catch(() => toast.error('تعذّر تحميل الأحياء'))
+  }, [])
+
+  const handleCreate = async () => {
+    if (!fullName.trim() || !username.trim() || !password.trim() || !districtId) {
+      toast.error('يرجى ملء جميع الحقول')
+      return
+    }
+    setSubmitting(true)
+    try {
+      await api.createMukhtar({
+        full_name: fullName.trim(),
+        username: username.trim(),
+        password,
+        district_id: districtId,
+      })
+      setCreatedPassword(password)
+      setFullName('')
+      setUsername('')
+      setPassword('')
+      setDistrictId('')
+      setShowForm(false)
+      toast.success('تم إنشاء حساب المختار')
+    } catch (e: any) {
+      toast.error(e.message || 'فشل إنشاء الحساب')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h2 className="text-xl font-semibold">مخاتير الأحياء</h2>
+        <Button onClick={() => setShowForm(true)} size="sm">
+          <Plus className="ml-2" size={16} />
+          إنشاء حساب مختار
+        </Button>
+      </div>
+
+      {createdPassword && (
+        <Card className="border-green-500/40 bg-green-50 dark:bg-green-950/20">
+          <CardContent className="pt-4">
+            <p className="font-semibold text-green-700 dark:text-green-400 mb-1">تم إنشاء الحساب بنجاح</p>
+            <p className="text-sm text-muted-foreground">
+              كلمة المرور المؤقتة (احفظها الآن):&nbsp;
+              <span className="font-mono font-bold">{createdPassword}</span>
+            </p>
+            <Button variant="outline" size="sm" className="mt-2" onClick={() => setCreatedPassword(null)}>
+              إغلاق
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {showForm && (
+        <Card className="border-primary/30">
+          <CardHeader>
+            <CardTitle className="text-base">بيانات المختار الجديد</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="space-y-1">
+              <Label>الاسم الكامل</Label>
+              <Input value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="مختار حي ..." dir="rtl" />
+            </div>
+            <div className="space-y-1">
+              <Label>اسم المستخدم</Label>
+              <Input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="mukhtar_..." dir="ltr" />
+            </div>
+            <div className="space-y-1">
+              <Label>كلمة المرور</Label>
+              <Input value={password} onChange={(e) => setPassword(e.target.value)} type="text" placeholder="كلمة المرور المؤقتة" dir="ltr" />
+            </div>
+            <div className="space-y-1">
+              <Label>الحي</Label>
+              <Select value={districtId} onValueChange={setDistrictId}>
+                <SelectTrigger dir="rtl">
+                  <SelectValue placeholder="اختر الحي" />
+                </SelectTrigger>
+                <SelectContent>
+                  {districts.map((d) => (
+                    <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex gap-2">
+              <Button onClick={handleCreate} disabled={submitting}>حفظ</Button>
+              <Button variant="outline" onClick={() => setShowForm(false)}>إلغاء</Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {!showForm && !createdPassword && (
+        <p className="text-muted-foreground text-sm">انقر على "إنشاء حساب مختار" لإضافة حساب جديد.</p>
+      )}
+    </div>
+  )
+}
+
+
 // ─── Main AdminDashboard ──────────────────────────────────────────────────────
 
 export function AdminDashboard({ user, onLogout }: AdminDashboardProps) {
   const isGovernor = user.role === 'governor'
   const isMayor = user.role === 'mayor'
 
-  const [activeTab, setActiveTab] = useState<'requests' | 'municipalities' | 'districts'>('requests')
+  const [activeTab, setActiveTab] = useState<'requests' | 'municipalities' | 'mayors' | 'districts' | 'mukhtars'>('requests')
 
   const tabs: { key: typeof activeTab; label: string; show: boolean }[] = [
     { key: 'requests', label: 'الطلبات', show: true },
     { key: 'municipalities', label: 'البلديات', show: isGovernor },
+    { key: 'mayors', label: 'رؤساء البلديات', show: isGovernor },
     { key: 'districts', label: 'الأحياء', show: isMayor },
+    { key: 'mukhtars', label: 'مخاتير الأحياء', show: isMayor },
   ]
 
   return (
@@ -867,7 +1103,7 @@ export function AdminDashboard({ user, onLogout }: AdminDashboardProps) {
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-2xl font-bold">الإدارة</h1>
-              <p className="text-sm text-muted-foreground">{user.name}</p>
+              <p className="text-sm text-muted-foreground">{user.fullName}</p>
             </div>
             <Button variant="outline" onClick={onLogout}>
               <SignOut className="ml-2" />
@@ -899,7 +1135,9 @@ export function AdminDashboard({ user, onLogout }: AdminDashboardProps) {
       <main className="container mx-auto px-4 py-8">
         {activeTab === 'requests' && <RequestsView user={user} />}
         {activeTab === 'municipalities' && isGovernor && <MunicipalitiesView user={user} />}
+        {activeTab === 'mayors' && isGovernor && <MayorsView user={user} />}
         {activeTab === 'districts' && isMayor && <DistrictsView user={user} />}
+        {activeTab === 'mukhtars' && isMayor && <MukhtarsView user={user} />}
       </main>
     </div>
   )
