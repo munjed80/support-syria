@@ -132,6 +132,53 @@ export interface PaginatedRequests {
   page_size: number
 }
 
+// ─── Dashboard response shapes (one per role) ─────────────────────────────────
+
+export interface DashboardCountEntry {
+  name: string
+  count: number
+}
+
+export interface MukhtarDashboard {
+  role: 'mukhtar'
+  open: number
+  in_progress: number
+  resolved_this_month: number
+  resolved: number
+}
+
+export interface MayorDashboard {
+  role: 'mayor'
+  open: number
+  urgent: number
+  overdue: number
+  most_problematic_district: string | null
+  most_problematic_district_count: number
+  most_common_category: string | null
+  most_common_category_count: number
+}
+
+export interface GovernorDashboard {
+  role: 'governor'
+  total: number
+  open: number
+  in_progress: number
+  resolved: number
+  by_municipality: DashboardCountEntry[]
+  by_district: DashboardCountEntry[]
+  most_common_category: string | null
+  most_common_category_count: number
+  most_assigned_team: string | null
+  most_assigned_team_count: number
+}
+
+export interface StaffDashboard {
+  role: string
+  total: number
+}
+
+export type DashboardData = MukhtarDashboard | MayorDashboard | GovernorDashboard | StaffDashboard
+
 export interface PublicSubmitRequest {
   district_id: string
   category: string
@@ -154,6 +201,8 @@ export interface RequestsFilter {
   status?: string | string[]
   category?: string | string[]
   priority?: string | string[]
+  responsible_team?: string | string[]
+  complaint_number?: string
   overdue?: boolean
   sla_breached?: boolean
   date_from?: string
@@ -340,8 +389,11 @@ class ApiClient {
 
   // ── Admin ─────────────────────────────────────────────────────────────────
 
-  async getRequests(filters: RequestsFilter = {}): Promise<PaginatedRequests> {
-    const params = new URLSearchParams()
+  async getDashboard(): Promise<DashboardData> {
+    return this.request<DashboardData>('/admin/dashboard')
+  }
+
+  async getRequests(filters: RequestsFilter = {}): Promise<PaginatedRequests> {    const params = new URLSearchParams()
     Object.entries(filters).forEach(([k, v]) => {
       if (v === undefined || v === null || v === '') return
       if (Array.isArray(v)) {

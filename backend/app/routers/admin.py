@@ -1,11 +1,11 @@
 import os
 import uuid
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
-from sqlalchemy import or_
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
@@ -259,6 +259,149 @@ def update_district(
     return district
 
 
+# ─── Dashboard ─────────────────────────────────────────────────────────────────
+
+@router.get("/dashboard")
+def get_dashboard(
+    current_user: User = Depends(require_roles(*ALLOWED_ROLES)),
+    db: Session = Depends(get_db),
+) -> Dict[str, Any]:
+    """Return role-scoped dashboard statistics."""
+    now = datetime.now(timezone.utc)
+    base_q = _scoped_requests(db, current_user)
+
+    if current_user.role in ("mukhtar", "district_admin"):
+        open_count = base_q.filter(
+            ServiceRequest.status.in_(["new", "under_review"])
+        ).count()
+        in_progress_count = base_q.filter(
+            ServiceRequest.status == "in_progress"
+        ).count()
+        month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        resolved_this_month = base_q.filter(
+            ServiceRequest.status == "resolved",
+            ServiceRequest.closed_at >= month_start,
+        ).count()
+        resolved_total = base_q.filter(ServiceRequest.status == "resolved").count()
+        return {
+            "role": "mukhtar",
+            "open": open_count,
+            "in_progress": in_progress_count,
+            "resolved_this_month": resolved_this_month,
+            "resolved": resolved_total,
+        }
+
+    if current_user.role in ("mayor", "municipal_admin"):
+        open_count = base_q.filter(
+            ServiceRequest.status.in_(["new", "under_review", "in_progress"])
+        ).count()
+        urgent_count = base_q.filter(
+            ServiceRequest.priority == "urgent",
+            ServiceRequest.status.notin_(["resolved", "rejected", "deferred"]),
+        ).count()
+        overdue_count = base_q.filter(
+            ServiceRequest.closed_at.is_(None),
+            ServiceRequest.sla_deadline < now,
+        ).count()
+        district_result = (
+            db.query(District.name, func.count(ServiceRequest.id).label("cnt"))
+            .join(ServiceRequest, ServiceRequest.district_id == District.id)
+            .filter(ServiceRequest.municipality_id == current_user.municipality_id)
+            .group_by(District.name)
+            .order_by(func.count(ServiceRequest.id).desc())
+            .first()
+        )
+        category_result = (
+            base_q
+            .with_entities(
+                ServiceRequest.category,
+                func.count(ServiceRequest.id).label("cnt"),
+            )
+            .group_by(ServiceRequest.category)
+            .order_by(func.count(ServiceRequest.id).desc())
+            .first()
+        )
+        return {
+            "role": "mayor",
+            "open": open_count,
+            "urgent": urgent_count,
+            "overdue": overdue_count,
+            "most_problematic_district": district_result[0] if district_result else None,
+            "most_problematic_district_count": district_result[1] if district_result else 0,
+            "most_common_category": category_result[0] if category_result else None,
+            "most_common_category_count": category_result[1] if category_result else 0,
+        }
+
+    if current_user.role == "governor":
+        from sqlalchemy import select as sa_select
+        total = base_q.count()
+        open_count = base_q.filter(
+            ServiceRequest.status.in_(["new", "under_review"])
+        ).count()
+        in_progress_count = base_q.filter(
+            ServiceRequest.status == "in_progress"
+        ).count()
+        resolved_count = base_q.filter(ServiceRequest.status == "resolved").count()
+
+        mun_subq = sa_select(Municipality.id).where(
+            Municipality.governorate_id == current_user.governorate_id
+        )
+        by_municipality = (
+            db.query(Municipality.name, func.count(ServiceRequest.id).label("cnt"))
+            .join(ServiceRequest, ServiceRequest.municipality_id == Municipality.id)
+            .filter(Municipality.governorate_id == current_user.governorate_id)
+            .group_by(Municipality.name)
+            .order_by(func.count(ServiceRequest.id).desc())
+            .all()
+        )
+        by_district = (
+            db.query(District.name, func.count(ServiceRequest.id).label("cnt"))
+            .join(ServiceRequest, ServiceRequest.district_id == District.id)
+            .filter(ServiceRequest.municipality_id.in_(mun_subq))
+            .group_by(District.name)
+            .order_by(func.count(ServiceRequest.id).desc())
+            .limit(10)
+            .all()
+        )
+        category_result = (
+            base_q
+            .with_entities(
+                ServiceRequest.category,
+                func.count(ServiceRequest.id).label("cnt"),
+            )
+            .group_by(ServiceRequest.category)
+            .order_by(func.count(ServiceRequest.id).desc())
+            .first()
+        )
+        team_result = (
+            base_q
+            .filter(ServiceRequest.responsible_team.isnot(None))
+            .with_entities(
+                ServiceRequest.responsible_team,
+                func.count(ServiceRequest.id).label("cnt"),
+            )
+            .group_by(ServiceRequest.responsible_team)
+            .order_by(func.count(ServiceRequest.id).desc())
+            .first()
+        )
+        return {
+            "role": "governor",
+            "total": total,
+            "open": open_count,
+            "in_progress": in_progress_count,
+            "resolved": resolved_count,
+            "by_municipality": [{"name": r[0], "count": r[1]} for r in by_municipality],
+            "by_district": [{"name": r[0], "count": r[1]} for r in by_district],
+            "most_common_category": category_result[0] if category_result else None,
+            "most_common_category_count": category_result[1] if category_result else 0,
+            "most_assigned_team": team_result[0] if team_result else None,
+            "most_assigned_team_count": team_result[1] if team_result else 0,
+        }
+
+    # Staff / other roles — minimal stats
+    return {"role": current_user.role, "total": base_q.count()}
+
+
 # ─── Requests ─────────────────────────────────────────────────────────────────
 
 @router.get("/requests", response_model=PaginatedRequests)
@@ -268,6 +411,8 @@ def list_requests(
     status: Optional[List[str]] = Query(None),
     category: Optional[List[str]] = Query(None),
     priority: Optional[List[str]] = Query(None),
+    responsible_team: Optional[List[str]] = Query(None),
+    complaint_number: Optional[str] = Query(None),
     overdue: Optional[bool] = Query(None),
     sla_breached: Optional[bool] = Query(None),
     date_from: Optional[datetime] = Query(None),
@@ -293,6 +438,13 @@ def list_requests(
         q = q.filter(ServiceRequest.category.in_(category))
     if priority:
         q = q.filter(ServiceRequest.priority.in_(priority))
+    if responsible_team:
+        q = q.filter(ServiceRequest.responsible_team.in_(responsible_team))
+
+    # Complaint number exact/partial match
+    if complaint_number and complaint_number.strip():
+        term = f"%{complaint_number.strip()}%"
+        q = q.filter(ServiceRequest.complaint_number.ilike(term))
 
     # Scope filters (governor can drill into a specific municipality/district)
     if municipality_id and current_user.role in ("governor",):
@@ -318,7 +470,7 @@ def list_requests(
     if date_to:
         q = q.filter(ServiceRequest.created_at <= date_to)
 
-    # Full-text search on description, tracking_code
+    # Full-text search on description, tracking_code, address_text, and complaint_number
     if search and search.strip():
         term = f"%{search.strip()}%"
         q = q.filter(
@@ -326,6 +478,7 @@ def list_requests(
                 ServiceRequest.description.ilike(term),
                 ServiceRequest.tracking_code.ilike(term),
                 ServiceRequest.address_text.ilike(term),
+                ServiceRequest.complaint_number.ilike(term),
             )
         )
 

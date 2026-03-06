@@ -1,5 +1,5 @@
-import { useState, useMemo, useEffect, useCallback } from 'react'
-import { api, toServiceRequest, toDistrict, toMunicipality, MunicipalityOut, DistrictOut } from '@/lib/api'
+import { useState, useEffect, useCallback } from 'react'
+import { api, toServiceRequest, toDistrict, toMunicipality, MunicipalityOut, DistrictOut, DashboardData, MukhtarDashboard, MayorDashboard, GovernorDashboard } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -18,8 +18,8 @@ import {
   TableHeader,
   TableRow
 } from '@/components/ui/table'
-import { SignOut, ChartBar, Buildings, Warning, ClipboardText, Plus, MagnifyingGlass, MapPin } from '@phosphor-icons/react'
-import { CATEGORIES, STATUSES, STATUS_COLORS, PRIORITIES, PRIORITY_BADGE_COLORS, PRIORITY_ORDER, formatRelativeTime, isOverdue } from '@/lib/constants'
+import { SignOut, ChartBar, Buildings, Warning, ClipboardText, Plus, MagnifyingGlass, MapPin, Users, CheckCircle, Timer, Wrench } from '@phosphor-icons/react'
+import { CATEGORIES, STATUSES, STATUS_COLORS, PRIORITIES, PRIORITY_BADGE_COLORS, RESPONSIBLE_TEAMS, formatRelativeTime, isOverdue } from '@/lib/constants'
 import { RequestDetailsDialog } from '@/components/RequestDetailsDialog'
 import type { ServiceRequest, User, District, Municipality } from '@/lib/types'
 import { toast } from 'sonner'
@@ -397,10 +397,15 @@ function RequestsView({ user }: { user: User }) {
   const [page, setPage] = useState(1)
   const PAGE_SIZE = 20
 
+  // Dashboard stats (server-side)
+  const [dashboard, setDashboard] = useState<DashboardData | null>(null)
+
   // Filters
   const [statusFilter, setStatusFilter] = useState<string[]>([])
   const [categoryFilter, setCategoryFilter] = useState<string[]>([])
   const [priorityFilter, setPriorityFilter] = useState<string[]>([])
+  const [responsibleTeamFilter, setResponsibleTeamFilter] = useState<string[]>([])
+  const [complaintNumberSearch, setComplaintNumberSearch] = useState('')
   const [districtFilter, setDistrictFilter] = useState<string>('all')
   const [municipalityFilter, setMunicipalityFilter] = useState<string>('all')
   const [overdueFilter, setOverdueFilter] = useState<boolean>(false)
@@ -418,6 +423,13 @@ function RequestsView({ user }: { user: User }) {
   const isGovernor = user.role === 'governor'
   const isMayor = user.role === 'mayor'
   const isMukhtar = user.role === 'mukhtar'
+
+  // Load dashboard stats on mount
+  useEffect(() => {
+    api.getDashboard()
+      .then((data) => setDashboard(data))
+      .catch(() => {})
+  }, [])
 
   useEffect(() => {
     if (isGovernor) {
@@ -440,6 +452,8 @@ function RequestsView({ user }: { user: User }) {
     if (statusFilter.length > 0) filters.status = statusFilter
     if (categoryFilter.length > 0) filters.category = categoryFilter
     if (priorityFilter.length > 0) filters.priority = priorityFilter
+    if (responsibleTeamFilter.length > 0) filters.responsible_team = responsibleTeamFilter
+    if (complaintNumberSearch.trim()) filters.complaint_number = complaintNumberSearch.trim()
     if (districtFilter !== 'all') filters.district_id = districtFilter
     if (municipalityFilter !== 'all') filters.municipality_id = municipalityFilter
     if (overdueFilter) filters.overdue = true
@@ -454,19 +468,11 @@ function RequestsView({ user }: { user: User }) {
         setTotal(result.total)
       })
       .catch(() => {})
-  }, [page, statusFilter, categoryFilter, priorityFilter, districtFilter, municipalityFilter,
+  }, [page, statusFilter, categoryFilter, priorityFilter, responsibleTeamFilter,
+      complaintNumberSearch, districtFilter, municipalityFilter,
       overdueFilter, slaBreachedFilter, dateFrom, dateTo, search, sortBy, sortDir])
 
   useEffect(() => { fetchRequests() }, [fetchRequests])
-
-  const stats = useMemo(() => {
-    return {
-      total,
-      open: requests.filter(r => r.status !== 'resolved' && r.status !== 'rejected' && r.status !== 'deferred').length,
-      resolved: requests.filter(r => r.status === 'resolved').length,
-      urgent: requests.filter(r => r.priority === 'urgent').length,
-    }
-  }, [requests, total])
 
   const toggleMultiFilter = (
     value: string,
@@ -481,43 +487,210 @@ function RequestsView({ user }: { user: User }) {
     setPage(1)
   }
 
+  const clearAllFilters = () => {
+    setOverdueFilter(false)
+    setSlaBreachedFilter(false)
+    setDateFrom('')
+    setDateTo('')
+    setStatusFilter([])
+    setCategoryFilter([])
+    setPriorityFilter([])
+    setResponsibleTeamFilter([])
+    setComplaintNumberSearch('')
+    setDistrictFilter('all')
+    setMunicipalityFilter('all')
+    setSearch('')
+    setPage(1)
+  }
+
+  const hasActiveFilters = overdueFilter || slaBreachedFilter || dateFrom || dateTo ||
+    statusFilter.length > 0 || categoryFilter.length > 0 || priorityFilter.length > 0 ||
+    responsibleTeamFilter.length > 0 || complaintNumberSearch.trim() ||
+    districtFilter !== 'all' || municipalityFilter !== 'all' || search.trim()
+
   const totalPages = Math.ceil(total / PAGE_SIZE)
 
   return (
     <div className="space-y-6">
-      {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription>إجمالي الطلبات</CardDescription>
-            <CardTitle className="text-3xl">{total}</CardTitle>
-          </CardHeader>
-          <CardContent><ChartBar size={24} className="text-muted-foreground" /></CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription>المفتوحة</CardDescription>
-            <CardTitle className="text-3xl text-[oklch(0.55_0.10_250)]">{stats.open}</CardTitle>
-          </CardHeader>
-          <CardContent><Buildings size={24} className="text-muted-foreground" /></CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription>المنجزة</CardDescription>
-            <CardTitle className="text-3xl text-[oklch(0.60_0.15_145)]">{stats.resolved}</CardTitle>
-          </CardHeader>
-          <CardContent><Buildings size={24} className="text-muted-foreground" /></CardContent>
-        </Card>
-        <Card className="border-destructive/50">
-          <CardHeader className="pb-2">
-            <CardDescription>العاجلة</CardDescription>
-            <CardTitle className="text-3xl text-destructive">{stats.urgent}</CardTitle>
-          </CardHeader>
-          <CardContent><Warning size={24} className="text-destructive" /></CardContent>
-        </Card>
-      </div>
+      {/* Role-specific dashboard summary cards */}
+      {dashboard && dashboard.role === 'mukhtar' && (() => {
+        const d = dashboard as MukhtarDashboard
+        return (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <Card>
+              <CardHeader className="pb-2">
+                <CardDescription>مفتوحة في الحي</CardDescription>
+                <CardTitle className="text-3xl text-[oklch(0.55_0.10_250)]">{d.open}</CardTitle>
+              </CardHeader>
+              <CardContent><Buildings size={24} className="text-muted-foreground" /></CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-2">
+                <CardDescription>قيد المعالجة</CardDescription>
+                <CardTitle className="text-3xl text-[oklch(0.65_0.13_65)]">{d.in_progress}</CardTitle>
+              </CardHeader>
+              <CardContent><Timer size={24} className="text-muted-foreground" /></CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-2">
+                <CardDescription>منجزة هذا الشهر</CardDescription>
+                <CardTitle className="text-3xl text-[oklch(0.60_0.15_145)]">{d.resolved_this_month}</CardTitle>
+              </CardHeader>
+              <CardContent><CheckCircle size={24} className="text-muted-foreground" /></CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-2">
+                <CardDescription>إجمالي المنجزة</CardDescription>
+                <CardTitle className="text-3xl">{d.resolved}</CardTitle>
+              </CardHeader>
+              <CardContent><ChartBar size={24} className="text-muted-foreground" /></CardContent>
+            </Card>
+          </div>
+        )
+      })()}
 
-      {/* Filters */}
+      {dashboard && dashboard.role === 'mayor' && (() => {
+        const d = dashboard as MayorDashboard
+        return (
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+            <Card>
+              <CardHeader className="pb-2">
+                <CardDescription>مفتوحة في البلدية</CardDescription>
+                <CardTitle className="text-3xl text-[oklch(0.55_0.10_250)]">{d.open}</CardTitle>
+              </CardHeader>
+              <CardContent><Buildings size={24} className="text-muted-foreground" /></CardContent>
+            </Card>
+            <Card className="border-destructive/50">
+              <CardHeader className="pb-2">
+                <CardDescription>عاجلة</CardDescription>
+                <CardTitle className="text-3xl text-destructive">{d.urgent}</CardTitle>
+              </CardHeader>
+              <CardContent><Warning size={24} className="text-destructive" /></CardContent>
+            </Card>
+            <Card className="border-orange-400/50">
+              <CardHeader className="pb-2">
+                <CardDescription>متأخّرة عن الموعد</CardDescription>
+                <CardTitle className="text-3xl text-orange-600">{d.overdue}</CardTitle>
+              </CardHeader>
+              <CardContent><Timer size={24} className="text-orange-500" /></CardContent>
+            </Card>
+            {d.most_problematic_district && (
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardDescription>أكثر الأحياء شكاوى</CardDescription>
+                  <CardTitle className="text-lg">{d.most_problematic_district}</CardTitle>
+                </CardHeader>
+                <CardContent className="text-sm text-muted-foreground">{d.most_problematic_district_count} طلب</CardContent>
+              </Card>
+            )}
+            {d.most_common_category && (
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardDescription>أكثر الفئات تكراراً</CardDescription>
+                  <CardTitle className="text-lg">{CATEGORIES[d.most_common_category as keyof typeof CATEGORIES] ?? d.most_common_category}</CardTitle>
+                </CardHeader>
+                <CardContent className="text-sm text-muted-foreground">{d.most_common_category_count} طلب</CardContent>
+              </Card>
+            )}
+          </div>
+        )
+      })()}
+
+      {dashboard && dashboard.role === 'governor' && (() => {
+        const d = dashboard as GovernorDashboard
+        return (
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardDescription>إجمالي الشكاوى</CardDescription>
+                  <CardTitle className="text-3xl">{d.total}</CardTitle>
+                </CardHeader>
+                <CardContent><ChartBar size={24} className="text-muted-foreground" /></CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardDescription>مفتوحة / قيد الدراسة</CardDescription>
+                  <CardTitle className="text-3xl text-[oklch(0.55_0.10_250)]">{d.open}</CardTitle>
+                </CardHeader>
+                <CardContent><Buildings size={24} className="text-muted-foreground" /></CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardDescription>قيد المعالجة</CardDescription>
+                  <CardTitle className="text-3xl text-[oklch(0.65_0.13_65)]">{d.in_progress}</CardTitle>
+                </CardHeader>
+                <CardContent><Timer size={24} className="text-muted-foreground" /></CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardDescription>منجزة</CardDescription>
+                  <CardTitle className="text-3xl text-[oklch(0.60_0.15_145)]">{d.resolved}</CardTitle>
+                </CardHeader>
+                <CardContent><CheckCircle size={24} className="text-muted-foreground" /></CardContent>
+              </Card>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {d.by_municipality.length > 0 && (
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-base">الشكاوى حسب البلدية</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-1">
+                      {d.by_municipality.map((m) => (
+                        <div key={m.name} className="flex justify-between text-sm">
+                          <span>{m.name}</span>
+                          <span className="font-semibold">{m.count}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+              {d.by_district.length > 0 && (
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-base">أكثر الأحياء شكاوى (أعلى 10)</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-1">
+                      {d.by_district.map((dist) => (
+                        <div key={dist.name} className="flex justify-between text-sm">
+                          <span>{dist.name}</span>
+                          <span className="font-semibold">{dist.count}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+              <div className="grid grid-cols-2 gap-4">
+                {d.most_common_category && (
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardDescription>أكثر الفئات تكراراً</CardDescription>
+                      <CardTitle className="text-base">{CATEGORIES[d.most_common_category as keyof typeof CATEGORIES] ?? d.most_common_category}</CardTitle>
+                    </CardHeader>
+                    <CardContent className="text-sm text-muted-foreground">{d.most_common_category_count} طلب</CardContent>
+                  </Card>
+                )}
+                {d.most_assigned_team && (
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardDescription>أكثر الفرق تكليفاً</CardDescription>
+                      <CardTitle className="text-base">{RESPONSIBLE_TEAMS[d.most_assigned_team] ?? d.most_assigned_team}</CardTitle>
+                    </CardHeader>
+                    <CardContent className="text-sm text-muted-foreground">{d.most_assigned_team_count} طلب</CardContent>
+                  </Card>
+                )}
+              </div>
+            </div>
+          </div>
+        )
+      })()}
+
+      {/* Filters + Table */}
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
@@ -532,9 +705,9 @@ function RequestsView({ user }: { user: User }) {
         </CardHeader>
         <CardContent>
           <div className="space-y-4 mb-6">
-            {/* Search */}
-            {(isGovernor || isMayor) && (
-              <div className="relative">
+            {/* General text search (all roles) */}
+            <div className="flex flex-wrap gap-3">
+              <div className="relative flex-1 min-w-48">
                 <MagnifyingGlass className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={16} />
                 <Input
                   placeholder="بحث في الوصف أو رمز التتبع أو العنوان..."
@@ -544,7 +717,18 @@ function RequestsView({ user }: { user: User }) {
                   dir="rtl"
                 />
               </div>
-            )}
+              {/* Complaint number search */}
+              <div className="relative min-w-48">
+                <ClipboardText className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={16} />
+                <Input
+                  placeholder="رقم الشكوى..."
+                  value={complaintNumberSearch}
+                  onChange={(e) => { setComplaintNumberSearch(e.target.value); setPage(1) }}
+                  className="pr-9"
+                  dir="rtl"
+                />
+              </div>
+            </div>
 
             <div className="flex flex-wrap gap-3">
               {/* Municipality filter (governor only) */}
@@ -565,7 +749,7 @@ function RequestsView({ user }: { user: User }) {
                 </Select>
               )}
 
-              {/* District filter */}
+              {/* District filter (governor + mayor) */}
               {(isGovernor || isMayor) && districts.length > 0 && (
                 <Select
                   value={districtFilter}
@@ -585,7 +769,7 @@ function RequestsView({ user }: { user: User }) {
                 </Select>
               )}
 
-              {/* Sort */}
+              {/* Sort (governor only) */}
               {isGovernor && (
                 <>
                   <Select value={sortBy} onValueChange={(v) => { setSortBy(v); setPage(1) }}>
@@ -656,17 +840,32 @@ function RequestsView({ user }: { user: User }) {
               ))}
             </div>
 
-            {/* Governor-only advanced filters */}
-            {isGovernor && (
-              <div className="flex flex-wrap gap-4 items-center pt-1 border-t">
-                <div className="flex items-center gap-2">
-                  <Switch
-                    id="overdue"
-                    checked={overdueFilter}
-                    onCheckedChange={(v) => { setOverdueFilter(v); setPage(1) }}
-                  />
-                  <Label htmlFor="overdue" className="cursor-pointer">متأخّرة</Label>
-                </div>
+            {/* Responsible team filter (all roles) */}
+            <div className="flex flex-wrap gap-2">
+              <span className="text-sm text-muted-foreground self-center ml-1">الفريق المسؤول:</span>
+              {Object.entries(RESPONSIBLE_TEAMS).map(([key, label]) => (
+                <Badge
+                  key={key}
+                  variant={responsibleTeamFilter.includes(key) ? 'default' : 'outline'}
+                  className="cursor-pointer select-none"
+                  onClick={() => toggleMultiFilter(key, responsibleTeamFilter, setResponsibleTeamFilter)}
+                >
+                  {label}
+                </Badge>
+              ))}
+            </div>
+
+            {/* Advanced filters (all roles) */}
+            <div className="flex flex-wrap gap-4 items-center pt-1 border-t">
+              <div className="flex items-center gap-2">
+                <Switch
+                  id="overdue"
+                  checked={overdueFilter}
+                  onCheckedChange={(v) => { setOverdueFilter(v); setPage(1) }}
+                />
+                <Label htmlFor="overdue" className="cursor-pointer">متأخّرة</Label>
+              </div>
+              {isGovernor && (
                 <div className="flex items-center gap-2">
                   <Switch
                     id="sla_breached"
@@ -675,49 +874,31 @@ function RequestsView({ user }: { user: User }) {
                   />
                   <Label htmlFor="sla_breached" className="cursor-pointer">SLA منتهية</Label>
                 </div>
-                <div className="flex items-center gap-2">
-                  <Label className="text-sm">من:</Label>
-                  <Input
-                    type="date"
-                    value={dateFrom}
-                    onChange={(e) => { setDateFrom(e.target.value); setPage(1) }}
-                    className="w-36 text-sm"
-                  />
-                </div>
-                <div className="flex items-center gap-2">
-                  <Label className="text-sm">إلى:</Label>
-                  <Input
-                    type="date"
-                    value={dateTo}
-                    onChange={(e) => { setDateTo(e.target.value); setPage(1) }}
-                    className="w-36 text-sm"
-                  />
-                </div>
-                {(overdueFilter || slaBreachedFilter || dateFrom || dateTo ||
-                  statusFilter.length || categoryFilter.length || priorityFilter.length ||
-                  districtFilter !== 'all' || municipalityFilter !== 'all' || search) && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => {
-                      setOverdueFilter(false)
-                      setSlaBreachedFilter(false)
-                      setDateFrom('')
-                      setDateTo('')
-                      setStatusFilter([])
-                      setCategoryFilter([])
-                      setPriorityFilter([])
-                      setDistrictFilter('all')
-                      setMunicipalityFilter('all')
-                      setSearch('')
-                      setPage(1)
-                    }}
-                  >
-                    مسح الفلاتر
-                  </Button>
-                )}
+              )}
+              <div className="flex items-center gap-2">
+                <Label className="text-sm">من:</Label>
+                <Input
+                  type="date"
+                  value={dateFrom}
+                  onChange={(e) => { setDateFrom(e.target.value); setPage(1) }}
+                  className="w-36 text-sm"
+                />
               </div>
-            )}
+              <div className="flex items-center gap-2">
+                <Label className="text-sm">إلى:</Label>
+                <Input
+                  type="date"
+                  value={dateTo}
+                  onChange={(e) => { setDateTo(e.target.value); setPage(1) }}
+                  className="w-36 text-sm"
+                />
+              </div>
+              {hasActiveFilters && (
+                <Button variant="ghost" size="sm" onClick={clearAllFilters}>
+                  مسح الفلاتر
+                </Button>
+              )}
+            </div>
           </div>
 
           {/* Table */}
@@ -732,6 +913,7 @@ function RequestsView({ user }: { user: User }) {
                   <TableHead>الحالة</TableHead>
                   <TableHead>الوصف</TableHead>
                   {(isGovernor || isMayor) && <TableHead>الحي</TableHead>}
+                  <TableHead>الفريق المسؤول</TableHead>
                   <TableHead>التاريخ</TableHead>
                 </TableRow>
               </TableHeader>
@@ -739,7 +921,7 @@ function RequestsView({ user }: { user: User }) {
                 {requests.length === 0 ? (
                   <TableRow>
                     <TableCell
-                      colSpan={(isGovernor || isMayor) ? 8 : 7}
+                      colSpan={(isGovernor || isMayor) ? 9 : 8}
                       className="text-center text-muted-foreground py-8"
                     >
                       لا توجد طلبات
@@ -791,6 +973,11 @@ function RequestsView({ user }: { user: User }) {
                             {districtName || '—'}
                           </TableCell>
                         )}
+                        <TableCell className="text-sm text-muted-foreground">
+                          {request.responsibleTeam
+                            ? RESPONSIBLE_TEAMS[request.responsibleTeam] ?? request.responsibleTeam
+                            : '—'}
+                        </TableCell>
                         <TableCell className="text-sm text-muted-foreground">
                           {formatRelativeTime(request.createdAt)}
                         </TableCell>
