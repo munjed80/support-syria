@@ -81,3 +81,257 @@
   --radius-2xl: calc(var(--radius) * 3);
   --radius-full: 9999px;
 }
+
+/* ─── Print overlay (screen styles) ──────────────────────────────────────── */
+
+.print-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: #fff;
+  overflow-y: auto;
+  padding: 24px 32px;
+  font-family: 'Tajawal', 'Cairo', Arial, sans-serif;
+  color: #111;
+  direction: rtl;
+}
+
+.print-controls {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 24px;
+  justify-content: flex-start;
+}
+
+.print-btn-primary {
+  background: #1a3a5c;
+  color: #fff;
+  border: none;
+  padding: 8px 20px;
+  border-radius: 6px;
+  font-size: 14px;
+  cursor: pointer;
+  font-family: 'Cairo', Arial, sans-serif;
+}
+
+.print-btn-secondary {
+  background: #e5e7eb;
+  color: #374151;
+  border: none;
+  padding: 8px 20px;
+  border-radius: 6px;
+  font-size: 14px;
+  cursor: pointer;
+  font-family: 'Cairo', Arial, sans-serif;
+}
+
+.print-header {
+  text-align: center;
+  margin-bottom: 20px;
+}
+
+.print-title {
+  font-size: 22px;
+  font-weight: 700;
+  margin: 0 0 4px;
+  font-family: 'Cairo', Arial, sans-serif;
+}
+
+.print-subtitle {
+  font-size: 17px;
+  font-weight: 600;
+  margin: 0 0 4px;
+  font-family: 'Cairo', Arial, sans-serif;
+}
+
+.print-period {
+  font-size: 14px;
+  color: #555;
+  margin: 0;
+}
+
+.print-divider {
+  border: none;
+  border-top: 2px solid #111;
+  margin: 16px 0;
+}
+
+.print-identity-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.print-identity-item {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+}
+
+.print-grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 24px;
+  margin-bottom: 12px;
+}
+
+.print-field {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+}
+
+.print-label {
+  font-weight: 700;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.print-value {
+  font-size: 13px;
+}
+
+.print-mono {
+  font-family: monospace;
+  letter-spacing: 0.05em;
+}
+
+.print-section {
+  margin-bottom: 20px;
+}
+
+.print-section-title {
+  font-size: 15px;
+  font-weight: 700;
+  border-bottom: 1px solid #aaa;
+  padding-bottom: 4px;
+  margin: 0 0 10px;
+  font-family: 'Cairo', Arial, sans-serif;
+}
+
+.print-body-text {
+  font-size: 13px;
+  line-height: 1.6;
+  margin: 0;
+}
+
+.print-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.print-table th,
+.print-table td {
+  border: 1px solid #aaa;
+  padding: 6px 10px;
+  text-align: right;
+}
+
+.print-table th {
+  background: #f3f4f6;
+  font-weight: 700;
+}
+
+.print-stats-table td {
+  font-weight: 700;
+}
+
+.print-stat-value {
+  font-weight: 700;
+  font-size: 15px;
+}
+
+.print-notes-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.print-note-item {
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  padding: 8px 12px;
+  background: #fafafa;
+}
+
+.print-note-date {
+  font-size: 11px;
+  color: #666;
+}
+
+.print-note-author {
+  font-size: 11px;
+  color: #666;
+}
+
+.print-note-text {
+  font-size: 13px;
+  margin: 4px 0 0;
+}
+
+.print-photo {
+  max-width: 400px;
+  max-height: 300px;
+  object-fit: contain;
+  border: 1px solid #aaa;
+  border-radius: 4px;
+}
+
+.print-footer {
+  margin-top: 32px;
+  padding-top: 12px;
+  border-top: 1px solid #aaa;
+  text-align: center;
+  font-size: 11px;
+  color: #777;
+}
+
+/* ─── @media print ────────────────────────────────────────────────────────── */
+
+@media print {
+  /* Hide everything on the page except the print overlay */
+  body * {
+    visibility: hidden;
+  }
+
+  /* Show the overlay and all its children */
+  .print-overlay,
+  .print-overlay * {
+    visibility: visible;
+  }
+
+  /* Position the overlay to cover the whole page */
+  .print-overlay {
+    position: absolute;
+    inset: 0;
+    padding: 20px 24px;
+    overflow: visible;
+    background: #fff;
+  }
+
+  /* Hide screen-only controls when printing */
+  .no-print {
+    display: none !important;
+  }
+
+  /* Page setup */
+  @page {
+    margin: 15mm 20mm;
+    size: A4 portrait;
+  }
+
+  /* Avoid breaking tables and sections across pages */
+  .print-section {
+    page-break-inside: avoid;
+  }
+
+  .print-table {
+    page-break-inside: auto;
+  }
+
+  .print-table tr {
+    page-break-inside: avoid;
+  }
+}

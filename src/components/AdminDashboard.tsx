@@ -18,9 +18,10 @@ import {
   TableHeader,
   TableRow
 } from '@/components/ui/table'
-import { SignOut, ChartBar, Buildings, Warning, ClipboardText, Plus, MagnifyingGlass, MapPin, Users, CheckCircle, Timer, Wrench } from '@phosphor-icons/react'
+import { SignOut, ChartBar, Buildings, Warning, ClipboardText, Plus, MagnifyingGlass, MapPin, Users, CheckCircle, Timer, Wrench, Printer } from '@phosphor-icons/react'
 import { CATEGORIES, STATUSES, STATUS_COLORS, PRIORITIES, PRIORITY_BADGE_COLORS, RESPONSIBLE_TEAMS, formatRelativeTime, isOverdue } from '@/lib/constants'
 import { RequestDetailsDialog } from '@/components/RequestDetailsDialog'
+import { PrintReport } from '@/components/PrintReport'
 import type { ServiceRequest, User, District, Municipality } from '@/lib/types'
 import { toast } from 'sonner'
 
@@ -1334,6 +1335,7 @@ function MonthlyReportsView({ user }: { user: User }) {
   const [report, setReport] = useState<MonthlyReport | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [showPrint, setShowPrint] = useState(false)
 
   useEffect(() => {
     if (isGovernor) {
@@ -1382,8 +1384,16 @@ function MonthlyReportsView({ user }: { user: User }) {
   }
 
   return (
-    <div className="space-y-6">
-      <h2 className="text-xl font-semibold">التقارير الشهرية</h2>
+    <>
+      {showPrint && report && (
+        <PrintReport
+          report={report}
+          reportType={reportType}
+          onClose={() => setShowPrint(false)}
+        />
+      )}
+      <div className="space-y-6">
+        <h2 className="text-xl font-semibold">التقارير الشهرية</h2>
 
       {/* Selectors */}
       <Card>
@@ -1473,6 +1483,16 @@ function MonthlyReportsView({ user }: { user: User }) {
             <Button onClick={fetchReport} disabled={loading} className="self-end">
               {loading ? 'جارٍ التحميل...' : 'عرض التقرير'}
             </Button>
+            {report && (
+              <Button
+                variant="outline"
+                onClick={() => setShowPrint(true)}
+                className="self-end gap-1"
+              >
+                <Printer size={16} />
+                طباعة التقرير
+              </Button>
+            )}
           </div>
         </CardContent>
       </Card>
@@ -1618,6 +1638,7 @@ function MonthlyReportsView({ user }: { user: User }) {
         </div>
       )}
     </div>
+    </>
   )
 }
 

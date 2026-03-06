@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { toast } from 'sonner'
-import { MapPin, Clock, User as UserIcon, CheckCircle, XCircle, CircleNotch, Warning, Trash } from '@phosphor-icons/react'
+import { MapPin, Clock, User as UserIcon, CheckCircle, XCircle, CircleNotch, Warning, Trash, Printer } from '@phosphor-icons/react'
 import {
   CATEGORIES,
   STATUSES,
@@ -23,6 +23,7 @@ import {
   canTransitionTo,
 } from '@/lib/constants'
 import type { ServiceRequest, RequestUpdate, User, District, RequestStatus, Priority, MaterialUsed } from '@/lib/types'
+import { PrintComplaint } from '@/components/PrintComplaint'
 
 interface RequestDetailsDialogProps {
   request: ServiceRequest | null
@@ -37,6 +38,7 @@ export function RequestDetailsDialog({ request, open, onOpenChange, currentUser,
   const [requestUpdates, setRequestUpdates] = useState<RequestUpdate[]>([])
   const [staffMembers, setStaffMembers] = useState<{ id: string; name: string }[]>([])
   const [liveRequest, setLiveRequest] = useState<ServiceRequest | null>(null)
+  const [showPrint, setShowPrint] = useState(false)
 
   const [newStatus, setNewStatus] = useState<string>('')
   const [newPriority, setNewPriority] = useState<string>('')
@@ -299,36 +301,55 @@ export function RequestDetailsDialog({ request, open, onOpenChange, currentUser,
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <div className="flex items-start justify-between gap-4">
-            <div className="space-y-1">
-              <div className="flex items-center gap-2 flex-wrap">
-                <DialogTitle className="text-xl">{CATEGORIES[displayRequest.category]}</DialogTitle>
-                <Badge className={STATUS_COLORS[displayRequest.status]}>
-                  {STATUSES[displayRequest.status]}
-                </Badge>
-                <Badge className={PRIORITY_BADGE_COLORS[displayRequest.priority]}>
-                  {PRIORITIES[displayRequest.priority]}
-                </Badge>
-                {displayRequest.isAutoEscalated && (
-                  <Badge variant="outline" className="text-xs border-[oklch(0.70_0.15_65)] text-[oklch(0.70_0.15_65)]">
-                    ترقية تلقائية
+    <>
+      {showPrint && (
+        <PrintComplaint
+          request={displayRequest}
+          updates={requestUpdates}
+          materials={materials}
+          districts={districts}
+          onClose={() => setShowPrint(false)}
+        />
+      )}
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <div className="flex items-start justify-between gap-4">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <DialogTitle className="text-xl">{CATEGORIES[displayRequest.category]}</DialogTitle>
+                  <Badge className={STATUS_COLORS[displayRequest.status]}>
+                    {STATUSES[displayRequest.status]}
                   </Badge>
-                )}
+                  <Badge className={PRIORITY_BADGE_COLORS[displayRequest.priority]}>
+                    {PRIORITIES[displayRequest.priority]}
+                  </Badge>
+                  {displayRequest.isAutoEscalated && (
+                    <Badge variant="outline" className="text-xs border-[oklch(0.70_0.15_65)] text-[oklch(0.70_0.15_65)]">
+                      ترقية تلقائية
+                    </Badge>
+                  )}
+                </div>
+                <DialogDescription>
+                  رمز التتبع: <span className="font-mono text-base">{displayRequest.trackingCode}</span>
+                  {displayRequest.complaintNumber && (
+                    <span className="mr-4 font-mono text-base text-foreground">
+                      رقم الشكوى: {displayRequest.complaintNumber}
+                    </span>
+                  )}
+                </DialogDescription>
               </div>
-              <DialogDescription>
-                رمز التتبع: <span className="font-mono text-base">{displayRequest.trackingCode}</span>
-                {displayRequest.complaintNumber && (
-                  <span className="mr-4 font-mono text-base text-foreground">
-                    رقم الشكوى: {displayRequest.complaintNumber}
-                  </span>
-                )}
-              </DialogDescription>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowPrint(true)}
+                className="flex-shrink-0 gap-1"
+              >
+                <Printer size={16} />
+                طباعة الشكوى
+              </Button>
             </div>
-          </div>
-        </DialogHeader>
+          </DialogHeader>
 
         <div className="space-y-6">
           <div className="grid grid-cols-2 gap-4">
@@ -667,5 +688,6 @@ export function RequestDetailsDialog({ request, open, onOpenChange, currentUser,
         </div>
       </DialogContent>
     </Dialog>
+    </>
   )
 }
