@@ -104,6 +104,15 @@ export interface ServiceRequestDetail extends ServiceRequestOut {
   updates: RequestUpdateOut[]
 }
 
+export interface AttachmentOut {
+  id: string
+  request_id: string
+  kind: string
+  file_url: string
+  file_name: string
+  created_at: string
+}
+
 export interface PaginatedRequests {
   items: ServiceRequestOut[]
   total: number
@@ -441,12 +450,12 @@ class ApiClient {
     })
   }
 
-  async uploadAttachment(requestId: string, file: File): Promise<unknown> {
+  async uploadAttachment(requestId: string, file: File, kind: 'before' | 'after' | 'other' = 'other'): Promise<AttachmentOut> {
     const form = new FormData()
     form.append('file', file)
     const headers: Record<string, string> = {}
     if (this.token) headers['Authorization'] = `Bearer ${this.token}`
-    const res = await fetch(`${BASE_URL}/admin/requests/${requestId}/attachments`, {
+    const res = await fetch(`${BASE_URL}/admin/requests/${requestId}/attachments?kind=${kind}`, {
       method: 'POST',
       headers,
       body: form,

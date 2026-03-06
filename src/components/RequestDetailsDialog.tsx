@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { api, toRequestUpdate, toServiceRequest } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -41,7 +41,8 @@ export function RequestDetailsDialog({ request, open, onOpenChange, currentUser,
   const [newPriority, setNewPriority] = useState<string>('')
   const [internalNote, setInternalNote] = useState('')
   const [rejectionReason, setRejectionReason] = useState('')
-  const [completionPhoto, setCompletionPhoto] = useState<string>('')
+  const [completionPhotoFile, setCompletionPhotoFile] = useState<File | null>(null)
+  const [completionPhotoPreview, setCompletionPhotoPreview] = useState<string>('')
   const [assignedUserId, setAssignedUserId] = useState<string>('')
   const [saving, setSaving] = useState(false)
 
@@ -71,7 +72,12 @@ export function RequestDetailsDialog({ request, open, onOpenChange, currentUser,
       setNewPriority('')
       setInternalNote('')
       setRejectionReason('')
-      setCompletionPhoto('')
+      setCompletionPhotoFile(null)
+      if (photoPreviewUrlRef.current) {
+        URL.revokeObjectURL(photoPreviewUrlRef.current)
+        photoPreviewUrlRef.current = ''
+      }
+      setCompletionPhotoPreview('')
       setAssignedUserId('')
       setLiveRequest(null)
       setRequestUpdates([])
@@ -86,6 +92,8 @@ export function RequestDetailsDialog({ request, open, onOpenChange, currentUser,
   const district = (districts || []).find(d => d.id === displayRequest.districtId)
   const validNextStatuses = getValidNextStatuses(displayRequest.status, currentUser.role)
 
+  const photoPreviewUrlRef = useRef<string>('')
+
   const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (file) {
@@ -93,11 +101,14 @@ export function RequestDetailsDialog({ request, open, onOpenChange, currentUser,
         toast.error('حجم الملف كبير جداً. الحد الأقصى 5 ميجابايت')
         return
       }
-      const reader = new FileReader()
-      reader.onloadend = () => {
-        setCompletionPhoto(reader.result as string)
+      // Revoke previous object URL to avoid memory leaks
+      if (photoPreviewUrlRef.current) {
+        URL.revokeObjectURL(photoPreviewUrlRef.current)
       }
-      reader.readAsDataURL(file)
+      const url = URL.createObjectURL(file)
+      photoPreviewUrlRef.current = url
+      setCompletionPhotoFile(file)
+      setCompletionPhotoPreview(url)
     }
   }
 
@@ -137,17 +148,24 @@ export function RequestDetailsDialog({ request, open, onOpenChange, currentUser,
       return
     }
 
-    if (newStatus === 'resolved' && !completionPhoto) {
+    if (newStatus === 'resolved' && !completionPhotoFile) {
       toast.error('يرجى إضافة صورة بعد الإنجاز')
       return
     }
 
     setSaving(true)
     try {
+      let completionPhotoUrl: string | undefined
+
+      if (newStatus === 'resolved' && completionPhotoFile) {
+        const attachment = await api.uploadAttachment(displayRequest.id, completionPhotoFile, 'after')
+        completionPhotoUrl = attachment.file_url
+      }
+
       const updated = await api.updateStatus(displayRequest.id, {
         status: newStatus,
         rejection_reason: newStatus === 'rejected' ? rejectionReason : undefined,
-        completion_photo_url: newStatus === 'resolved' ? completionPhoto : undefined,
+        completion_photo_url: newStatus === 'resolved' ? completionPhotoUrl : undefined,
         note: internalNote.trim() || undefined,
       })
       setLiveRequest(toServiceRequest(updated))
@@ -162,7 +180,12 @@ export function RequestDetailsDialog({ request, open, onOpenChange, currentUser,
       setNewStatus('')
       setInternalNote('')
       setRejectionReason('')
-      setCompletionPhoto('')
+      setCompletionPhotoFile(null)
+      if (photoPreviewUrlRef.current) {
+        URL.revokeObjectURL(photoPreviewUrlRef.current)
+        photoPreviewUrlRef.current = ''
+      }
+      setCompletionPhotoPreview('')
       onUpdate?.()
     } catch (error: any) {
       toast.error(error?.message || 'حدث خطأ أثناء التحديث')
@@ -376,9 +399,9 @@ export function RequestDetailsDialog({ request, open, onOpenChange, currentUser,
                         accept="image/*"
                         onChange={handlePhotoChange}
                       />
-                      {completionPhoto && (
+                      {completionPhotoPreview && (
                         <img 
-                          src={completionPhoto} 
+                          src={completionPhotoPreview} 
                           alt="معاينة" 
                           className="w-32 h-32 object-cover rounded border"
                         />
