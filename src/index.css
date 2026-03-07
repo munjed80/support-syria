@@ -279,6 +279,12 @@
   border-radius: 4px;
 }
 
+.print-photos-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
 .print-footer {
   margin-top: 32px;
   padding-top: 12px;

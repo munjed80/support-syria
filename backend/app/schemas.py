@@ -165,6 +165,9 @@ class ServiceRequestDetail(ServiceRequestOut):
     updates: list[RequestUpdateOut] = []
     attachments: list[AttachmentOut] = []
     materials_used: list["MaterialUsedOut"] = []
+    municipality_name: Optional[str] = None
+    district_name: Optional[str] = None
+    governorate_name: Optional[str] = None
 
     class Config:
         from_attributes = True

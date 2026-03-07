@@ -104,7 +104,11 @@ export interface RequestUpdateOut {
 
 export interface ServiceRequestDetail extends ServiceRequestOut {
   updates: RequestUpdateOut[]
+  attachments?: AttachmentOut[]
   materials_used?: MaterialUsedOut[]
+  municipality_name?: string
+  district_name?: string
+  governorate_name?: string
 }
 
 export interface MaterialUsedOut {
@@ -244,7 +248,7 @@ export interface RequestsFilter {
 
 // ─── Mappers (snake_case API → camelCase frontend types) ─────────────────────
 
-export function toServiceRequest(r: ServiceRequestOut): ServiceRequest {
+export function toServiceRequest(r: ServiceRequestOut & { municipality_name?: string; district_name?: string; governorate_name?: string }): ServiceRequest {
   return {
     id: String(r.id),
     municipalityId: String(r.municipality_id),
@@ -271,6 +275,9 @@ export function toServiceRequest(r: ServiceRequestOut): ServiceRequest {
     createdAt: r.created_at,
     updatedAt: r.updated_at,
     closedAt: r.closed_at ?? undefined,
+    municipalityName: r.municipality_name ?? undefined,
+    districtName: r.district_name ?? undefined,
+    governorateName: r.governorate_name ?? undefined,
   }
 }
 
@@ -282,6 +289,17 @@ export function toMaterialUsed(m: MaterialUsedOut): MaterialUsed {
     quantity: m.quantity,
     notes: m.notes ?? undefined,
     createdAt: m.created_at,
+  }
+}
+
+export function toAttachment(a: AttachmentOut): import('@/lib/types').Attachment {
+  return {
+    id: String(a.id),
+    requestId: String(a.request_id),
+    kind: a.kind as 'before' | 'after' | 'other' | 'photo' | 'document',
+    fileUrl: a.file_url,
+    fileName: a.file_name,
+    createdAt: a.created_at,
   }
 }
 
