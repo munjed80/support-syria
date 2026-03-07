@@ -884,11 +884,6 @@ def delete_material(
 
 
 ALLOWED_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
-ALLOWED_IMAGE_MIME_SIGNATURES: dict[bytes, str] = {
-    b"\xff\xd8\xff": ".jpg",
-    b"\x89PNG\r\n\x1a\n": ".png",
-    b"RIFF": ".webp",  # RIFF....WEBP checked below
-}
 MAX_UPLOAD_SIZE = 5 * 1024 * 1024  # 5 MB
 
 
@@ -943,8 +938,7 @@ async def upload_attachment(
     _validate_image_content(content, ext)
 
     # Sanitize: store with UUID-based name, preserving validated extension
-    safe_ext = ext if ext in ALLOWED_IMAGE_EXTENSIONS else ".jpg"
-    filename = f"{uuid.uuid4()}{safe_ext}"
+    filename = f"{uuid.uuid4()}{ext}"
     os.makedirs(settings.upload_dir, exist_ok=True)
     file_path = os.path.join(settings.upload_dir, filename)
 
@@ -952,11 +946,15 @@ async def upload_attachment(
     async with aiofiles.open(file_path, "wb") as f:
         await f.write(content)
 
+    # Store original filename (sanitized) for display; use UUID filename for storage
+    import re
+    safe_display_name = re.sub(r"[^\w.\-]", "_", original_name)[:200] or filename
+
     attachment = Attachment(
         request_id=req.id,
         kind=kind,
         file_url=f"/uploads/{filename}",
-        file_name=filename,
+        file_name=safe_display_name,
     )
     db.add(attachment)
     _log(db, current_user.id, "upload_attachment", "service_request", req.id,
