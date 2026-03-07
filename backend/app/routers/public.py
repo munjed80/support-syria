@@ -49,7 +49,9 @@ def submit_request(
 ):
     district = db.query(District).filter(District.id == payload.district_id).first()
     if not district:
-        raise HTTPException(status_code=404, detail="District not found")
+        raise HTTPException(status_code=404, detail="الحي غير موجود")
+    if not district.is_active:
+        raise HTTPException(status_code=422, detail="الحي غير نشط حالياً، يرجى اختيار حي آخر")
 
     # Generate unique tracking code
     for _ in range(10):

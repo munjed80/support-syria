@@ -2,7 +2,11 @@ from datetime import datetime
 from typing import Optional
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
+
+VALID_CATEGORIES = {"lighting", "water", "waste", "roads", "other"}
+VALID_PRIORITIES = {"low", "normal", "high", "urgent"}
+DESCRIPTION_MIN_LENGTH = 10
 
 
 # ─── Enums (mirror frontend types) ───────────────────────────────────────────
@@ -183,9 +187,30 @@ class PublicSubmitRequest(BaseModel):
     location_lat: Optional[float] = None
     location_lng: Optional[float] = None
 
+    @field_validator("category")
+    @classmethod
+    def validate_category(cls, v: str) -> str:
+        if v not in VALID_CATEGORIES:
+            raise ValueError("فئة غير صالحة. الفئات المتاحة: إنارة، مياه، نفايات، طرق، أخرى")
+        return v
+
+    @field_validator("description")
+    @classmethod
+    def validate_description(cls, v: str) -> str:
+        if not v or len(v.strip()) < DESCRIPTION_MIN_LENGTH:
+            raise ValueError(f"يجب أن يحتوي الوصف على {DESCRIPTION_MIN_LENGTH} أحرف على الأقل")
+        return v.strip()
+
 
 class PublicCitizenUpdate(BaseModel):
     message: str
+
+    @field_validator("message")
+    @classmethod
+    def validate_message(cls, v: str) -> str:
+        if not v or len(v.strip()) < 5:
+            raise ValueError("يجب أن تحتوي الرسالة على 5 أحرف على الأقل")
+        return v.strip()
 
 
 # ─── Admin endpoints ──────────────────────────────────────────────────────────
@@ -217,6 +242,27 @@ class AdminServiceRequestCreate(BaseModel):
     address_text: Optional[str] = None
     location_lat: Optional[float] = None
     location_lng: Optional[float] = None
+
+    @field_validator("category")
+    @classmethod
+    def validate_category(cls, v: str) -> str:
+        if v not in VALID_CATEGORIES:
+            raise ValueError("فئة غير صالحة. الفئات المتاحة: إنارة، مياه، نفايات، طرق، أخرى")
+        return v
+
+    @field_validator("priority")
+    @classmethod
+    def validate_priority(cls, v: str) -> str:
+        if v not in VALID_PRIORITIES:
+            raise ValueError("أولوية غير صالحة. الأولويات المتاحة: منخفضة، عادية، مرتفعة، عاجلة")
+        return v
+
+    @field_validator("description")
+    @classmethod
+    def validate_description(cls, v: str) -> str:
+        if not v or len(v.strip()) < DESCRIPTION_MIN_LENGTH:
+            raise ValueError(f"يجب أن يحتوي الوصف على {DESCRIPTION_MIN_LENGTH} أحرف على الأقل")
+        return v.strip()
 
 
 # ─── Paginated responses ──────────────────────────────────────────────────────
