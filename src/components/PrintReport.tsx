@@ -16,12 +16,15 @@ const REPORT_TYPE_LABELS: Record<string, string> = {
 interface PrintReportProps {
   report: MonthlyReport
   reportType: 'district' | 'municipality' | 'governorate'
+  entityName?: string
   onClose: () => void
 }
 
-export function PrintReport({ report, reportType, onClose }: PrintReportProps) {
+export function PrintReport({ report, reportType, entityName, onClose }: PrintReportProps) {
   const monthName = ARABIC_MONTHS[report.period.month - 1]
-  const reportTitle = `${REPORT_TYPE_LABELS[reportType]} — ${monthName} ${report.period.year}`
+  const reportTitle = entityName
+    ? `${REPORT_TYPE_LABELS[reportType]} — ${entityName} — ${monthName} ${report.period.year}`
+    : `${REPORT_TYPE_LABELS[reportType]} — ${monthName} ${report.period.year}`
 
   useEffect(() => {
     document.title = reportTitle
@@ -52,6 +55,7 @@ export function PrintReport({ report, reportType, onClose }: PrintReportProps) {
         <div className="print-header">
           <h1 className="print-title">نظام الشكاوى البلدية</h1>
           <h2 className="print-subtitle">{REPORT_TYPE_LABELS[reportType]}</h2>
+          {entityName && <p className="print-entity-name">{entityName}</p>}
           <p className="print-period">{monthName} {report.period.year}</p>
         </div>
 
