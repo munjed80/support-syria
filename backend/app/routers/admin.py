@@ -883,6 +883,30 @@ def delete_material(
     db.commit()
 
 
+ALLOWED_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
+ALLOWED_IMAGE_MIME_SIGNATURES: dict[bytes, str] = {
+    b"\xff\xd8\xff": ".jpg",
+    b"\x89PNG\r\n\x1a\n": ".png",
+    b"RIFF": ".webp",  # RIFF....WEBP checked below
+}
+MAX_UPLOAD_SIZE = 5 * 1024 * 1024  # 5 MB
+
+
+def _validate_image_content(content: bytes, declared_ext: str) -> None:
+    """Raise HTTPException if content does not look like an allowed image."""
+    # Check magic bytes
+    if content[:3] == b"\xff\xd8\xff":
+        return  # JPEG
+    if content[:8] == b"\x89PNG\r\n\x1a\n":
+        return  # PNG
+    if content[:4] == b"RIFF" and content[8:12] == b"WEBP":
+        return  # WEBP
+    raise HTTPException(
+        status_code=415,
+        detail="نوع الملف غير مسموح به. يُقبل فقط: JPG، JPEG، PNG، WEBP",
+    )
+
+
 @router.post("/requests/{request_id}/attachments", response_model=AttachmentOut)
 async def upload_attachment(
     request_id: UUID,
@@ -899,14 +923,28 @@ async def upload_attachment(
     if kind not in ("before", "after", "other"):
         kind = "other"
 
-    content = await file.read()
-    if len(content) > 5 * 1024 * 1024:
-        raise HTTPException(status_code=413, detail="File too large (max 5 MB)")
+    # Validate file extension
+    original_name = file.filename or ""
+    ext = os.path.splitext(original_name)[1].lower()
+    if ext not in ALLOWED_IMAGE_EXTENSIONS:
+        raise HTTPException(
+            status_code=415,
+            detail="نوع الملف غير مسموح به. يُقبل فقط: JPG، JPEG، PNG، WEBP",
+        )
 
-    # `kind` (before/after/other) is supplied via query parameter, not inferred from extension.
-    # The extension is only used to preserve the original file type in the stored filename.
-    ext = os.path.splitext(file.filename or "")[1].lower()
-    filename = f"{uuid.uuid4()}{ext}"
+    content = await file.read()
+    if len(content) > MAX_UPLOAD_SIZE:
+        raise HTTPException(
+            status_code=413,
+            detail="حجم الملف كبير جداً. الحد الأقصى 5 ميجابايت",
+        )
+
+    # Validate magic bytes (prevent disguised executables)
+    _validate_image_content(content, ext)
+
+    # Sanitize: store with UUID-based name, preserving validated extension
+    safe_ext = ext if ext in ALLOWED_IMAGE_EXTENSIONS else ".jpg"
+    filename = f"{uuid.uuid4()}{safe_ext}"
     os.makedirs(settings.upload_dir, exist_ok=True)
     file_path = os.path.join(settings.upload_dir, filename)
 
@@ -918,7 +956,7 @@ async def upload_attachment(
         request_id=req.id,
         kind=kind,
         file_url=f"/uploads/{filename}",
-        file_name=file.filename or filename,
+        file_name=filename,
     )
     db.add(attachment)
     _log(db, current_user.id, "upload_attachment", "service_request", req.id,
