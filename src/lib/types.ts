@@ -63,6 +63,9 @@ export interface ServiceRequest {
   createdAt: string
   updatedAt: string
   closedAt?: string
+  municipalityName?: string
+  districtName?: string
+  governorateName?: string
 }
 
 export interface MaterialUsed {
@@ -102,7 +105,7 @@ export interface Assignment {
 export interface Attachment {
   id: string
   requestId: string
-  kind: 'photo' | 'document'
+  kind: 'before' | 'after' | 'other' | 'photo' | 'document'
   fileUrl: string
   fileName: string
   createdAt: string

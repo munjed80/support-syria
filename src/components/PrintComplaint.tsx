@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useMemo } from 'react'
 import {
   CATEGORIES,
   STATUSES,
@@ -6,18 +6,27 @@ import {
   RESPONSIBLE_TEAMS,
   formatDate,
 } from '@/lib/constants'
-import type { ServiceRequest, RequestUpdate, MaterialUsed, District } from '@/lib/types'
+import type { ServiceRequest, RequestUpdate, MaterialUsed, District, Attachment } from '@/lib/types'
 
 interface PrintComplaintProps {
   request: ServiceRequest
   updates: RequestUpdate[]
   materials: MaterialUsed[]
+  attachments?: Attachment[]
   districts?: District[]
   onClose: () => void
 }
 
-export function PrintComplaint({ request, updates, materials, districts, onClose }: PrintComplaintProps) {
+export function PrintComplaint({ request, updates, materials, attachments, districts, onClose }: PrintComplaintProps) {
   const district = (districts || []).find((d) => d.id === request.districtId)
+
+  // Derive "entered by" from the first update that set status to 'new'
+  const sortedUpdates = useMemo(
+    () => [...updates].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()),
+    [updates]
+  )
+  const creationUpdate = sortedUpdates.find((u) => u.toStatus === 'new' && !u.isAutoEscalation)
+  const enteredBy = creationUpdate?.actorName
 
   useEffect(() => {
     document.title = `شكوى رقم ${request.complaintNumber ?? request.trackingCode}`
@@ -32,6 +41,9 @@ export function PrintComplaint({ request, updates, materials, districts, onClose
 
   const internalNotes = updates.filter((update) => update.isInternal && update.message)
   const timelineUpdates = updates.filter((update) => update.toStatus || update.toPriority || update.isAutoEscalation)
+
+  // Submission/before photos from attachments (exclude 'after' which is the completion photo)
+  const submissionPhotos = (attachments ?? []).filter((a) => a.kind !== 'after')
 
   return (
     <div className="print-overlay" dir="rtl" lang="ar">
@@ -87,10 +99,22 @@ export function PrintComplaint({ request, updates, materials, districts, onClose
             <span className="print-label">الحالة:</span>
             <span className="print-value">{STATUSES[request.status]}</span>
           </div>
-          {district && (
+          {(request.districtName ?? district?.name) && (
             <div className="print-field">
               <span className="print-label">الحي:</span>
-              <span className="print-value">{district.name}</span>
+              <span className="print-value">{request.districtName ?? district?.name}</span>
+            </div>
+          )}
+          {request.municipalityName && (
+            <div className="print-field">
+              <span className="print-label">البلدية:</span>
+              <span className="print-value">{request.municipalityName}</span>
+            </div>
+          )}
+          {request.governorateName && (
+            <div className="print-field">
+              <span className="print-label">المحافظة:</span>
+              <span className="print-value">{request.governorateName}</span>
             </div>
           )}
           {request.responsibleTeam && (
@@ -105,6 +129,12 @@ export function PrintComplaint({ request, updates, materials, districts, onClose
             <div className="print-field">
               <span className="print-label">المكلف:</span>
               <span className="print-value">{request.assignedToName}</span>
+            </div>
+          )}
+          {enteredBy && (
+            <div className="print-field">
+              <span className="print-label">أُدخلت بواسطة:</span>
+              <span className="print-value">{enteredBy}</span>
             </div>
           )}
         </div>
@@ -122,6 +152,23 @@ export function PrintComplaint({ request, updates, materials, districts, onClose
           <div className="print-section">
             <h3 className="print-section-title">الموقع / العنوان</h3>
             <p className="print-body-text">{request.addressText}</p>
+          </div>
+        )}
+
+        {/* Submission photos */}
+        {submissionPhotos.length > 0 && (
+          <div className="print-section">
+            <h3 className="print-section-title">الصور المرفقة</h3>
+            <div className="print-photos-grid">
+              {submissionPhotos.map((a, idx) => (
+                <img
+                  key={a.id}
+                  src={a.fileUrl}
+                  alt={`صورة الشكوى رقم ${idx + 1}`}
+                  className="print-photo"
+                />
+              ))}
+            </div>
           </div>
         )}
 

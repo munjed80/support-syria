@@ -152,6 +152,20 @@ class ServiceRequest(Base):
     attachments = relationship("Attachment", back_populates="request", cascade="all, delete-orphan")
     materials_used = relationship("MaterialUsed", back_populates="request", cascade="all, delete-orphan")
 
+    @property
+    def municipality_name(self) -> str | None:
+        return self.municipality.name if self.municipality else None
+
+    @property
+    def district_name(self) -> str | None:
+        return self.district.name if self.district else None
+
+    @property
+    def governorate_name(self) -> str | None:
+        if self.municipality and self.municipality.governorate:
+            return self.municipality.governorate.name
+        return None
+
 
 class RequestUpdate(Base):
     __tablename__ = "request_updates"

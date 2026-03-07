@@ -502,8 +502,16 @@ def get_request(
     current_user: User = Depends(require_roles(*ALLOWED_ROLES)),
     db: Session = Depends(get_db),
 ):
+    from sqlalchemy.orm import joinedload
     q = _scoped_requests(db, current_user)
-    req = q.filter(ServiceRequest.id == request_id).first()
+    req = (
+        q.options(
+            joinedload(ServiceRequest.municipality).joinedload(Municipality.governorate),
+            joinedload(ServiceRequest.district),
+        )
+        .filter(ServiceRequest.id == request_id)
+        .first()
+    )
     if not req:
         raise HTTPException(status_code=404, detail="Request not found")
     return req

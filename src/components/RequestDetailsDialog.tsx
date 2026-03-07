@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { api, toRequestUpdate, toServiceRequest, toMaterialUsed, MaterialUsedOut } from '@/lib/api'
+import { api, toRequestUpdate, toServiceRequest, toMaterialUsed, toAttachment, MaterialUsedOut } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
@@ -22,7 +22,7 @@ import {
   getValidNextStatuses,
   canTransitionTo,
 } from '@/lib/constants'
-import type { ServiceRequest, RequestUpdate, User, District, RequestStatus, Priority, MaterialUsed } from '@/lib/types'
+import type { ServiceRequest, RequestUpdate, User, District, RequestStatus, Priority, MaterialUsed, Attachment } from '@/lib/types'
 import { PrintComplaint } from '@/components/PrintComplaint'
 
 interface RequestDetailsDialogProps {
@@ -38,6 +38,7 @@ export function RequestDetailsDialog({ request, open, onOpenChange, currentUser,
   const [requestUpdates, setRequestUpdates] = useState<RequestUpdate[]>([])
   const [staffMembers, setStaffMembers] = useState<{ id: string; name: string }[]>([])
   const [liveRequest, setLiveRequest] = useState<ServiceRequest | null>(null)
+  const [attachments, setAttachments] = useState<Attachment[]>([])
   const [showPrint, setShowPrint] = useState(false)
 
   const [newStatus, setNewStatus] = useState<string>('')
@@ -69,6 +70,7 @@ export function RequestDetailsDialog({ request, open, onOpenChange, currentUser,
               .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
           )
           setMaterials((detail.materials_used ?? []).map(toMaterialUsed))
+          setAttachments((detail.attachments ?? []).map(toAttachment))
         })
         .catch(() => {})
 
@@ -95,6 +97,7 @@ export function RequestDetailsDialog({ request, open, onOpenChange, currentUser,
       setLiveRequest(null)
       setRequestUpdates([])
       setMaterials([])
+      setAttachments([])
       setNewMatName('')
       setNewMatQty('')
       setNewMatNotes('')
@@ -307,6 +310,7 @@ export function RequestDetailsDialog({ request, open, onOpenChange, currentUser,
           request={displayRequest}
           updates={requestUpdates}
           materials={materials}
+          attachments={attachments}
           districts={districts}
           onClose={() => setShowPrint(false)}
         />
