@@ -1,5 +1,7 @@
 # نظام الطلبات البلدية – محافظة دمشق
 
+> ⚠️ **تحذير**: بيانات الدخول الافتراضية مخصصة للتشغيل المحلي والاختبار فقط. لا تستخدمها في بيئة الإنتاج.
+
 نظام إدارة شكاوى وطلبات الخدمات البلدية باللغة العربية (RTL) خاص بمحافظة دمشق.
 
 ---
@@ -12,12 +14,12 @@
 ### التشغيل السريع
 
 ```bash
-# 1. نسخ ملف البيئة
-cp .env.example .env
-# عدّل .env وأضف SECRET_KEY قوياً
+# 1. نسخ ملفات البيئة
+cp .env.example .env                      # متغيرات الباكند – عدّل SECRET_KEY
+cp .env.frontend.example .env.local       # متغيرات الواجهة الأمامية
 
-# 2. تشغيل الخدمات (PostgreSQL + FastAPI)
-docker compose up --build
+# 2. تشغيل الخدمات (PostgreSQL + FastAPI) في الخلفية
+docker compose up --build -d
 
 # يقوم الباكند تلقائياً بـ:
 #   - تطبيق الترحيلات (alembic upgrade head)
@@ -32,11 +34,20 @@ npm run dev
 
 ### متغيرات البيئة الرئيسية
 
+#### الباكند (`.env`)
+
 | المتغير | القيمة الافتراضية | الوصف |
 |---------|-------------------|-------|
 | `DATABASE_URL` | `postgresql://postgres:postgres@db:5432/municipal_requests` | رابط قاعدة البيانات |
 | `SECRET_KEY` | (يجب تغييره) | مفتاح JWT |
 | `CORS_ORIGINS` | `http://localhost:5173` | أصول CORS المسموح بها |
+| `ACCESS_TOKEN_EXPIRE_MINUTES` | `480` | مدة صلاحية التوكن (بالدقائق) |
+| `RATE_LIMIT_PER_HOUR` | `3` | الحد الأقصى للطلبات العامة لكل IP في الساعة |
+
+#### الواجهة الأمامية (`.env.local`)
+
+| المتغير | القيمة الافتراضية | الوصف |
+|---------|-------------------|-------|
 | `VITE_API_URL` | `http://localhost:8000` | رابط الـ API للواجهة الأمامية |
 
 ---
@@ -138,17 +149,59 @@ npm run dev
 ### إدارة (JWT مطلوب)
 | الطريقة | المسار | الوصف |
 |---------|--------|-------|
+| `GET` | `/admin/dashboard` | إحصائيات لوحة التحكم العامة |
 | `GET` | `/admin/requests` | قائمة الطلبات (مُقيَّدة بالدور) |
 | `GET` | `/admin/requests/{id}` | تفاصيل طلب مع السجل الزمني |
 | `POST` | `/admin/requests` | إنشاء طلب يدوي (مختار فقط) |
 | `POST` | `/admin/requests/{id}/status` | تغيير الحالة (حسب الدور) |
 | `POST` | `/admin/requests/{id}/priority` | تغيير الأولوية |
 | `POST` | `/admin/requests/{id}/note` | إضافة ملاحظة داخلية |
+| `POST` | `/admin/requests/{id}/responsible-team` | تعيين الفريق المسؤول |
+| `GET` | `/admin/requests/{id}/materials` | قائمة المواد المستخدمة |
+| `POST` | `/admin/requests/{id}/materials` | إضافة مادة مستخدمة |
 | `POST` | `/admin/requests/{id}/attachments?kind=before\|after\|other` | رفع مرفق |
 | `GET` | `/admin/municipalities` | البلديات (محافظ) |
 | `POST` | `/admin/municipalities` | إنشاء بلدية |
 | `GET` | `/admin/districts` | الأحياء (رئيس بلدية/محافظ) |
 | `POST` | `/admin/districts` | إنشاء حي (رئيس بلدية) |
+| `GET` | `/admin/reports/district` | تقرير شهري على مستوى الحي |
+| `GET` | `/admin/reports/municipality` | تقرير شهري على مستوى البلدية |
+| `GET` | `/admin/reports/governorate` | تقرير شهري على مستوى المحافظة |
+
+---
+
+## هيكل المشروع
+
+```
+support-syria/
+├── backend/            # FastAPI – Python
+│   ├── app/            # الكود الأساسي (routers, models, schemas…)
+│   ├── alembic/        # ترحيلات قاعدة البيانات
+│   ├── seed.py         # تهيئة البيانات الأولية
+│   └── Dockerfile
+├── src/                # React – TypeScript (الواجهة الأمامية)
+├── docker-compose.yml
+├── .env.example        # نموذج متغيرات الباكند
+└── .env.frontend.example  # نموذج متغيرات الواجهة الأمامية
+```
+
+---
+
+## استكشاف الأخطاء (Troubleshooting)
+
+```bash
+# إعادة تشغيل جميع الخدمات
+docker compose restart
+
+# إعادة البناء الكاملة (بعد تغيير الكود أو الإعدادات)
+docker compose down && docker compose up --build -d
+
+# عرض سجلات الباكند
+docker compose logs backend -f
+
+# إعادة تهيئة قاعدة البيانات من الصفر (تحذير: يحذف جميع البيانات)
+docker compose down -v && docker compose up --build -d
+```
 
 ---
 
