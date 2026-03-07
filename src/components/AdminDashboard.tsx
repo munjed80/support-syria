@@ -1383,12 +1383,23 @@ function MonthlyReportsView({ user }: { user: User }) {
     yearOptions.push(y)
   }
 
+  const printEntityName = (() => {
+    if (reportType === 'district' && selectedDistrict) {
+      return districts.find((d) => d.id === selectedDistrict)?.name
+    }
+    if (reportType === 'municipality' && selectedMunicipality) {
+      return municipalities.find((m) => m.id === selectedMunicipality)?.name
+    }
+    return undefined
+  })()
+
   return (
     <>
       {showPrint && report && (
         <PrintReport
           report={report}
           reportType={reportType}
+          entityName={printEntityName}
           onClose={() => setShowPrint(false)}
         />
       )}

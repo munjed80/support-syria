@@ -150,6 +150,18 @@
   margin: 0;
 }
 
+.print-entity-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: #333;
+  margin: 4px 0 0;
+  font-family: 'Cairo', Arial, sans-serif;
+}
+
+.print-content {
+  width: 100%;
+}
+
 .print-divider {
   border: none;
   border-top: 2px solid #111;
@@ -314,7 +326,8 @@
     inset: 0;
     padding: 20px 24px;
     overflow: visible;
-    background: #fff;
+    background: #fff !important;
+    color: #000 !important;
   }
 
   /* Hide screen-only controls when printing */
