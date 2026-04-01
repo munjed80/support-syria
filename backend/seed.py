@@ -3,6 +3,7 @@ Seed script – creates Damascus governorate, municipality, districts, and user 
 Run: python seed.py
 
 Requires DATABASE_URL to be set (or uses the default from config).
+Set ENVIRONMENT=production to seed only structural data (no demo users/requests).
 """
 import os
 import sys
@@ -18,6 +19,8 @@ from datetime import datetime, timezone
 import uuid
 
 Base.metadata.create_all(bind=engine)
+
+IS_PRODUCTION = os.getenv("ENVIRONMENT", "development").lower() == "production"
 
 
 def seed():
@@ -63,7 +66,13 @@ def seed():
             districts.append(d)
         db.flush()
 
-        # Users
+        if IS_PRODUCTION:
+            db.commit()
+            print("✅ تم تهيئة البيانات الهيكلية (بيئة الإنتاج – بدون مستخدمين تجريبيين).")
+            print("   أنشئ المستخدمين يدوياً عبر سكربت الإنشاء أو واجهة الإدارة.")
+            return
+
+        # Demo users (development only)
         users_data = [
             {
                 "username": "gov_damascus",
