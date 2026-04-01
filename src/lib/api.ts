@@ -19,7 +19,7 @@
 
 import type { ServiceRequest, RequestUpdate, District, Municipality, User, UserRole, MaterialUsed } from '@/lib/types'
 
-const BASE_URL = (import.meta as any).env?.VITE_API_URL ?? 'http://localhost:8000'
+const BASE_URL = (import.meta as any).env?.VITE_API_URL ?? '/api'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 

@@ -187,6 +187,76 @@ support-syria/
 
 ---
 
+## النشر على خادم VPS (Production Deployment)
+
+### المتطلبات
+- خادم VPS مع Docker و Docker Compose
+- دومين (اختياري لكن مُوصى به)
+- Node.js 18+ لبناء الواجهة الأمامية (أو البناء محلياً ونقل مجلد `dist/`)
+
+### خطوات النشر
+
+```bash
+# 1. استنساخ المشروع على الخادم
+git clone https://github.com/munjed80/support-syria.git
+cd support-syria
+
+# 2. إعداد ملف البيئة
+cp .env.production.example .env
+# عدّل .env وأدخل القيم الحقيقية:
+#   - POSTGRES_PASSWORD (كلمة مرور قوية)
+#   - SECRET_KEY (مفتاح عشوائي – أنشئه بالأمر أدناه)
+#   - CORS_ORIGINS (رابط الدومين الخاص بك مثل https://yourdomain.com)
+# python3 -c "import secrets; print(secrets.token_hex(32))"
+
+# 3. بناء الواجهة الأمامية
+npm install
+npm run build
+# يُنشئ مجلد dist/ الذي يخدمه Nginx
+
+# 4. تشغيل الخدمات
+docker compose -f docker-compose.prod.yml up --build -d
+
+# 5. التحقق من التشغيل
+docker compose -f docker-compose.prod.yml logs -f
+# يجب أن ترى: "Application startup complete"
+# الموقع يعمل على: http://YOUR_SERVER_IP (أو الدومين)
+```
+
+### ملاحظات إنتاجية
+- **لا يتم كشف PostgreSQL** خارج شبكة Docker (بدون port mapping)
+- **لا يتم إنشاء مستخدمين تجريبيين** – أنشئ المستخدمين يدوياً بعد النشر
+- **Nginx** يخدم الواجهة الأمامية ويوجّه `/api/*` إلى FastAPI
+- لإضافة HTTPS، استخدم Certbot أو ضع Nginx خلف reverse proxy مع SSL
+
+### إضافة أول مستخدم في الإنتاج
+
+```bash
+docker compose -f docker-compose.prod.yml exec backend python -c "
+from app.database import SessionLocal
+from app.auth import hash_password
+from app.models import User, Governorate
+
+db = SessionLocal()
+gov = db.query(Governorate).first()
+user = User(
+    username='admin',
+    full_name='المسؤول',
+    password_hash=hash_password('CHANGE_THIS_PASSWORD'),
+    role='governor',
+    governorate_id=gov.id,
+    is_active=True,
+    must_change_password=True,
+)
+db.add(user)
+db.commit()
+print('✅ User created')
+db.close()
+"
+```
+
+---
+
 ## استكشاف الأخطاء (Troubleshooting)
 
 ```bash
