@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { api, toMunicipalTeam, toServiceRequest, toDistrict, toMunicipality, toUser, MunicipalityOut, DistrictOut, DashboardData, MukhtarDashboard, MayorDashboard, GovernorDashboard, MonthlyReport } from '@/lib/api'
+import { api, toMunicipalTeam, toServiceRequest, toDistrict, toMunicipality, toUser, MunicipalityOut, DistrictOut, DashboardData, MukhtarDashboard, MayorDashboard, GovernorDashboard, MonthlyReport, GovernorPerformanceDashboardResponse, MayorPerformanceDashboardResponse, AccountabilityReport } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -1253,6 +1253,162 @@ const ARABIC_MONTHS = [
   'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر',
 ]
 
+const SIGNAL_STYLES: Record<string, string> = {
+  good: 'bg-green-100 text-green-800 border-green-300',
+  moderate: 'bg-yellow-100 text-yellow-800 border-yellow-300',
+  poor: 'bg-red-100 text-red-800 border-red-300',
+}
+
+function PerformanceView({ user }: { user: User }) {
+  const isGovernor = user.role === 'governor'
+  const isMayor = user.role === 'mayor' || user.role === 'municipal_admin'
+  const [governorData, setGovernorData] = useState<GovernorPerformanceDashboardResponse | null>(null)
+  const [mayorData, setMayorData] = useState<MayorPerformanceDashboardResponse | null>(null)
+  const [districts, setDistricts] = useState<DistrictOut[]>([])
+  const [sortBy, setSortBy] = useState<'open_complaints' | 'overdue_complaints' | 'slowest_resolution_time' | 'best_resolution_rate' | 'municipality_name'>('open_complaints')
+  const [districtFilter, setDistrictFilter] = useState<string>('all')
+  const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    if (isGovernor || isMayor) {
+      api.getAdminDistricts().then(setDistricts).catch(() => {})
+    }
+  }, [isGovernor, isMayor])
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    try {
+      if (isGovernor) {
+        const data = await api.getGovernorPerformance({
+          sort_by: sortBy,
+          district_id: districtFilter === 'all' ? undefined : districtFilter,
+        })
+        setGovernorData(data)
+      }
+      if (isMayor) {
+        const data = await api.getMayorPerformance({
+          district_id: districtFilter === 'all' ? undefined : districtFilter,
+        })
+        setMayorData(data)
+      }
+    } catch (e: any) {
+      toast.error(e.message || 'تعذّر تحميل مؤشرات الأداء')
+    } finally {
+      setLoading(false)
+    }
+  }, [isGovernor, isMayor, sortBy, districtFilter])
+
+  useEffect(() => { load() }, [load])
+
+  if (!isGovernor && !isMayor) {
+    return <Alert><AlertDescription>لوحة الأداء متاحة للمحافظ ورئيس البلدية فقط.</AlertDescription></Alert>
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap gap-3 items-end">
+        {isGovernor && (
+          <div>
+            <Label className="text-sm text-muted-foreground">الترتيب</Label>
+            <Select value={sortBy} onValueChange={(v: any) => setSortBy(v)}>
+              <SelectTrigger className="w-52"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="open_complaints">أعلى الشكاوى المفتوحة</SelectItem>
+                <SelectItem value="overdue_complaints">أعلى الشكاوى المتأخرة</SelectItem>
+                <SelectItem value="slowest_resolution_time">أبطأ وقت حل</SelectItem>
+                <SelectItem value="best_resolution_rate">أفضل معدل إنجاز</SelectItem>
+                <SelectItem value="municipality_name">اسم البلدية</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+        {(isGovernor || isMayor) && (
+          <div>
+            <Label className="text-sm text-muted-foreground">تصفية حسب الحي</Label>
+            <Select value={districtFilter} onValueChange={setDistrictFilter}>
+              <SelectTrigger className="w-52"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">كل الأحياء</SelectItem>
+                {districts.map((d) => <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+        <Button onClick={load} disabled={loading}>{loading ? 'جارٍ التحديث...' : 'تحديث'}</Button>
+      </div>
+
+      {isGovernor && governorData && (
+        <>
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+            <Card><CardHeader><CardDescription>أفضل بلدية</CardDescription><CardTitle className="text-base">{governorData.highlights.best_performing_municipality || '—'}</CardTitle></CardHeader></Card>
+            <Card><CardHeader><CardDescription>أضعف بلدية</CardDescription><CardTitle className="text-base">{governorData.highlights.worst_performing_municipality || '—'}</CardTitle></CardHeader></Card>
+            <Card><CardHeader><CardDescription>أعلى تراكم</CardDescription><CardTitle className="text-base">{governorData.highlights.highest_backlog_municipality || '—'}</CardTitle></CardHeader></Card>
+            <Card><CardHeader><CardDescription>أسرع إغلاق</CardDescription><CardTitle className="text-base">{governorData.highlights.fastest_closure_municipality || '—'}</CardTitle></CardHeader></Card>
+          </div>
+          <Card>
+            <CardHeader><CardTitle className="text-base">ترتيب أداء البلديات</CardTitle></CardHeader>
+            <CardContent>
+              {governorData.municipalities.length === 0 ? <p className="text-sm text-muted-foreground">لا توجد بيانات أداء حالياً.</p> : (
+                <Table>
+                  <TableHeader><TableRow><TableHead>البلدية</TableHead><TableHead>الإجمالي</TableHead><TableHead>مفتوحة</TableHead><TableHead>قيد المعالجة</TableHead><TableHead>منجزة</TableHead><TableHead>متأخرة</TableHead><TableHead>معدل الإنجاز</TableHead><TableHead>متوسط الحل (ساعة)</TableHead><TableHead>الإشارات</TableHead></TableRow></TableHeader>
+                  <TableBody>{governorData.municipalities.map((m) => (
+                    <TableRow key={m.municipality_id}>
+                      <TableCell>{m.municipality_name}</TableCell><TableCell>{m.total_complaints}</TableCell><TableCell>{m.open_complaints}</TableCell><TableCell>{m.in_progress_complaints}</TableCell><TableCell>{m.resolved_complaints}</TableCell><TableCell>{m.overdue_complaints}</TableCell><TableCell>{m.resolution_rate}%</TableCell><TableCell>{m.average_resolution_time_hours ?? '—'}</TableCell>
+                      <TableCell className="space-x-1 space-x-reverse">
+                        <Badge className={SIGNAL_STYLES[m.closure_signal]}>إنجاز</Badge>
+                        <Badge className={SIGNAL_STYLES[m.overdue_signal]}>تأخير</Badge>
+                        <Badge className={SIGNAL_STYLES[m.speed_signal]}>سرعة</Badge>
+                      </TableCell>
+                    </TableRow>
+                  ))}</TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
+        </>
+      )}
+
+      {isMayor && mayorData && (
+        <>
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+            <Card><CardHeader><CardDescription>أفضل حي</CardDescription><CardTitle className="text-base">{mayorData.highlights.best_performing_district || '—'}</CardTitle></CardHeader></Card>
+            <Card><CardHeader><CardDescription>أعلى تراكم</CardDescription><CardTitle className="text-base">{mayorData.highlights.highest_backlog_district || '—'}</CardTitle></CardHeader></Card>
+            <Card><CardHeader><CardDescription>الأكثر نشاطاً</CardDescription><CardTitle className="text-base">{mayorData.highlights.most_active_mukhtar || '—'}</CardTitle></CardHeader></Card>
+            <Card><CardHeader><CardDescription>الأقل استجابة</CardDescription><CardTitle className="text-base">{mayorData.highlights.least_responsive_district || '—'}</CardTitle></CardHeader></Card>
+            <Card><CardHeader><CardDescription>أكثر فريق إنتاجاً</CardDescription><CardTitle className="text-base">{mayorData.highlights.most_productive_team || '—'}</CardTitle></CardHeader></Card>
+          </div>
+          <Card>
+            <CardHeader><CardTitle className="text-base">أداء الأحياء والمخاتير</CardTitle></CardHeader>
+            <CardContent>
+              {mayorData.districts.length === 0 ? <p className="text-sm text-muted-foreground">لا توجد بيانات حالياً.</p> : (
+                <Table>
+                  <TableHeader><TableRow><TableHead>الحي</TableHead><TableHead>المختار</TableHead><TableHead>الإجمالي</TableHead><TableHead>مفتوحة</TableHead><TableHead>منجزة</TableHead><TableHead>متأخرة</TableHead><TableHead>متوسط الحل</TableHead><TableHead>إشارات</TableHead></TableRow></TableHeader>
+                  <TableBody>{mayorData.districts.map((d) => (
+                    <TableRow key={d.district_id}><TableCell>{d.district_name}</TableCell><TableCell>{d.mukhtar_name || '—'}</TableCell><TableCell>{d.total_complaints}</TableCell><TableCell>{d.open_complaints}</TableCell><TableCell>{d.resolved_complaints}</TableCell><TableCell>{d.overdue_complaints}</TableCell><TableCell>{d.average_resolution_time_hours ?? '—'}</TableCell><TableCell className="space-x-1 space-x-reverse"><Badge className={SIGNAL_STYLES[d.closure_signal]}>إنجاز</Badge><Badge className={SIGNAL_STYLES[d.overdue_signal]}>تأخير</Badge><Badge className={SIGNAL_STYLES[d.speed_signal]}>سرعة</Badge></TableCell></TableRow>
+                  ))}</TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader><CardTitle className="text-base">أداء الفرق</CardTitle></CardHeader>
+            <CardContent>
+              {mayorData.teams.length === 0 ? <p className="text-sm text-muted-foreground">لا توجد فرق أو لا توجد بيانات تعيين.</p> : (
+                <Table>
+                  <TableHeader><TableRow><TableHead>الفريق</TableHead><TableHead>القائد</TableHead><TableHead>الحالة</TableHead><TableHead>معيّنة</TableHead><TableHead>منجزة</TableHead><TableHead>متأخرة</TableHead><TableHead>متوسط الإغلاق</TableHead></TableRow></TableHeader>
+                  <TableBody>{mayorData.teams.map((t) => (
+                    <TableRow key={t.team_id}><TableCell>{t.team_name}</TableCell><TableCell>{t.leader_name}</TableCell><TableCell><Badge variant={t.is_active ? 'default' : 'secondary'}>{t.is_active ? 'نشط' : 'غير نشط'}</Badge></TableCell><TableCell>{t.assigned_complaints}</TableCell><TableCell>{t.resolved_count}</TableCell><TableCell>{t.overdue_count}</TableCell><TableCell>{t.average_closure_time_hours ?? '—'}</TableCell></TableRow>
+                  ))}</TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
+        </>
+      )}
+    </div>
+  )
+}
+
 function MonthlyReportsView({ user }: { user: User }) {
   const isGovernor = user.role === 'governor'
   const isMayor = user.role === 'mayor' || user.role === 'municipal_admin'
@@ -1269,6 +1425,7 @@ function MonthlyReportsView({ user }: { user: User }) {
   const [municipalities, setMunicipalities] = useState<MunicipalityOut[]>([])
   const [districts, setDistricts] = useState<DistrictOut[]>([])
   const [report, setReport] = useState<MonthlyReport | null>(null)
+  const [accountabilityReport, setAccountabilityReport] = useState<AccountabilityReport | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [showPrint, setShowPrint] = useState(false)
@@ -1307,6 +1464,13 @@ function MonthlyReportsView({ user }: { user: User }) {
         })
       }
       setReport(data)
+      const accountability = await api.getAccountabilityReport({
+        month,
+        year,
+        municipality_id: isGovernor ? selectedMunicipality || undefined : undefined,
+        district_id: (isGovernor || isMayor) ? selectedDistrict || undefined : undefined,
+      })
+      setAccountabilityReport(accountability)
     } catch (e: any) {
       setError(e.message || 'تعذّر تحميل التقرير')
     } finally {
@@ -1584,6 +1748,39 @@ function MonthlyReportsView({ user }: { user: User }) {
           </div>
         </div>
       )}
+
+      {accountabilityReport && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">تقرير المساءلة الشهري</CardTitle>
+            <CardDescription>مؤشرات الإشراف واتخاذ القرار للفترة المحددة.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+              <div><p className="text-xs text-muted-foreground">مفتوحة خلال الفترة</p><p className="text-xl font-semibold">{accountabilityReport.complaints_opened_during_period}</p></div>
+              <div><p className="text-xs text-muted-foreground">مغلقة خلال الفترة</p><p className="text-xl font-semibold">{accountabilityReport.complaints_closed_during_period}</p></div>
+              <div><p className="text-xs text-muted-foreground">متبقية من فترات سابقة</p><p className="text-xl font-semibold">{accountabilityReport.complaints_still_open_from_previous_periods}</p></div>
+              <div><p className="text-xs text-muted-foreground">متأخرة</p><p className="text-xl font-semibold">{accountabilityReport.overdue_complaints}</p></div>
+              <div><p className="text-xs text-muted-foreground">معدل الإغلاق</p><p className="text-xl font-semibold">{accountabilityReport.closure_rate}%</p></div>
+              <div><p className="text-xs text-muted-foreground">متوسط زمن الحل</p><p className="text-xl font-semibold">{accountabilityReport.average_time_to_resolution_hours ?? '—'} ساعة</p></div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div>
+                <p className="text-sm font-medium mb-2">أعلى الفئات</p>
+                {accountabilityReport.top_categories.length === 0 ? <p className="text-sm text-muted-foreground">لا بيانات</p> : accountabilityReport.top_categories.map((r) => <div key={r.name} className="flex justify-between text-sm"><span>{CATEGORIES[r.name as keyof typeof CATEGORIES] ?? r.name}</span><span>{r.count}</span></div>)}
+              </div>
+              <div>
+                <p className="text-sm font-medium mb-2">أعلى الفرق</p>
+                {accountabilityReport.top_teams.length === 0 ? <p className="text-sm text-muted-foreground">لا بيانات</p> : accountabilityReport.top_teams.map((r) => <div key={r.name} className="flex justify-between text-sm"><span>{r.name}</span><span>{r.count}</span></div>)}
+              </div>
+              <div>
+                <p className="text-sm font-medium mb-2">أعلى الجهات المتأخرة</p>
+                {accountabilityReport.top_delayed_entities.length === 0 ? <p className="text-sm text-muted-foreground">لا بيانات</p> : accountabilityReport.top_delayed_entities.map((r) => <div key={r.name} className="flex justify-between text-sm"><span>{r.name}</span><span>{r.count}</span></div>)}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </div>
     </>
   )
@@ -1596,10 +1793,11 @@ export function AdminDashboard({ user, onLogout }: AdminDashboardProps) {
   const isGovernor = user.role === 'governor'
   const isMayor = user.role === 'mayor'
 
-  const [activeTab, setActiveTab] = useState<'requests' | 'municipalities' | 'mayors' | 'districts' | 'mukhtars' | 'teams' | 'reports'>('requests')
+  const [activeTab, setActiveTab] = useState<'requests' | 'performance' | 'municipalities' | 'mayors' | 'districts' | 'mukhtars' | 'teams' | 'reports'>('requests')
 
   const tabs: { key: typeof activeTab; label: string; show: boolean }[] = [
     { key: 'requests', label: 'الطلبات', show: true },
+    { key: 'performance', label: 'لوحة الأداء', show: isGovernor || isMayor },
     { key: 'municipalities', label: 'البلديات', show: isGovernor },
     { key: 'mayors', label: 'رؤساء البلديات', show: isGovernor },
     { key: 'districts', label: 'الأحياء', show: isMayor },
@@ -1646,6 +1844,7 @@ export function AdminDashboard({ user, onLogout }: AdminDashboardProps) {
 
       <main className="container mx-auto px-4 py-8">
         {activeTab === 'requests' && <RequestsView user={user} />}
+        {activeTab === 'performance' && <PerformanceView user={user} />}
         {activeTab === 'municipalities' && isGovernor && <MunicipalitiesView user={user} />}
         {activeTab === 'mayors' && isGovernor && <MayorsView user={user} />}
         {activeTab === 'districts' && isMayor && <DistrictsView user={user} />}

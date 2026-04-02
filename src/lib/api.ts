@@ -167,6 +167,98 @@ export interface MonthlyReport {
   by_status: ReportCountEntry[]
 }
 
+export interface GovernorMunicipalityPerformance {
+  municipality_id: string
+  municipality_name: string
+  total_complaints: number
+  open_complaints: number
+  in_progress_complaints: number
+  resolved_complaints: number
+  rejected_complaints: number
+  deferred_complaints: number
+  overdue_complaints: number
+  resolution_rate: number
+  average_resolution_time_hours?: number
+  last_activity_date?: string
+  most_common_category?: string
+  most_assigned_team?: string
+  active_districts_count: number
+  active_mukhtars_count: number
+  closure_signal: 'good' | 'moderate' | 'poor'
+  overdue_signal: 'good' | 'moderate' | 'poor'
+  speed_signal: 'good' | 'moderate' | 'poor'
+}
+
+export interface GovernorPerformanceDashboardResponse {
+  highlights: {
+    best_performing_municipality?: string
+    worst_performing_municipality?: string
+    highest_backlog_municipality?: string
+    fastest_closure_municipality?: string
+  }
+  municipalities: GovernorMunicipalityPerformance[]
+}
+
+export interface MayorDistrictPerformance {
+  district_id: string
+  district_name: string
+  mukhtar_name?: string
+  total_complaints: number
+  open_complaints: number
+  resolved_complaints: number
+  overdue_complaints: number
+  average_resolution_time_hours?: number
+  last_activity_date?: string
+  most_common_category?: string
+  closure_signal: 'good' | 'moderate' | 'poor'
+  overdue_signal: 'good' | 'moderate' | 'poor'
+  speed_signal: 'good' | 'moderate' | 'poor'
+}
+
+export interface MayorTeamPerformance {
+  team_id: string
+  team_name: string
+  leader_name: string
+  is_active: boolean
+  assigned_complaints: number
+  resolved_count: number
+  overdue_count: number
+  average_closure_time_hours?: number
+  closure_signal: 'good' | 'moderate' | 'poor'
+  overdue_signal: 'good' | 'moderate' | 'poor'
+  speed_signal: 'good' | 'moderate' | 'poor'
+}
+
+export interface MayorPerformanceDashboardResponse {
+  highlights: {
+    best_performing_district?: string
+    highest_backlog_district?: string
+    most_active_mukhtar?: string
+    least_responsive_district?: string
+    most_productive_team?: string
+  }
+  districts: MayorDistrictPerformance[]
+  teams: MayorTeamPerformance[]
+}
+
+export interface AccountabilityEntity {
+  name: string
+  count: number
+}
+
+export interface AccountabilityReport {
+  period: MonthlyReportPeriod
+  complaints_opened_during_period: number
+  complaints_closed_during_period: number
+  complaints_still_open_from_previous_periods: number
+  overdue_complaints: number
+  closure_rate: number
+  average_time_to_resolution_hours?: number
+  top_categories: AccountabilityEntity[]
+  top_teams: AccountabilityEntity[]
+  top_delayed_entities: AccountabilityEntity[]
+}
+
 // ─── Dashboard response shapes (one per role) ─────────────────────────────────
 
 export interface DashboardCountEntry {
@@ -690,6 +782,36 @@ class ApiClient {
     return this.request<void>(`/admin/requests/${requestId}/materials/${materialId}`, {
       method: 'DELETE',
     })
+  }
+
+  async getGovernorPerformance(params: {
+    sort_by?: 'open_complaints' | 'overdue_complaints' | 'slowest_resolution_time' | 'best_resolution_rate' | 'municipality_name'
+    district_id?: string
+  } = {}): Promise<GovernorPerformanceDashboardResponse> {
+    const p = new URLSearchParams()
+    if (params.sort_by) p.set('sort_by', params.sort_by)
+    if (params.district_id) p.set('district_id', params.district_id)
+    return this.request<GovernorPerformanceDashboardResponse>(`/admin/performance/governor${p.toString() ? `?${p.toString()}` : ''}`)
+  }
+
+  async getMayorPerformance(params: { district_id?: string } = {}): Promise<MayorPerformanceDashboardResponse> {
+    const p = new URLSearchParams()
+    if (params.district_id) p.set('district_id', params.district_id)
+    return this.request<MayorPerformanceDashboardResponse>(`/admin/performance/mayor${p.toString() ? `?${p.toString()}` : ''}`)
+  }
+
+  async getAccountabilityReport(params: {
+    month: number
+    year: number
+    municipality_id?: string
+    district_id?: string
+  }): Promise<AccountabilityReport> {
+    const p = new URLSearchParams()
+    p.set('month', String(params.month))
+    p.set('year', String(params.year))
+    if (params.municipality_id) p.set('municipality_id', params.municipality_id)
+    if (params.district_id) p.set('district_id', params.district_id)
+    return this.request<AccountabilityReport>(`/admin/reports/accountability?${p.toString()}`)
   }
 
   // ── Monthly Reports ───────────────────────────────────────────────────────

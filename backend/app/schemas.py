@@ -368,6 +368,110 @@ class MonthlyReportPeriod(BaseModel):
     year: int
 
 
+
+
+# ─── Performance & Accountability ───────────────────────────────────────────
+
+class PerformanceSignal(str):
+    good = "good"
+    moderate = "moderate"
+    poor = "poor"
+
+
+class GovernorMunicipalityPerformance(BaseModel):
+    municipality_id: UUID
+    municipality_name: str
+    total_complaints: int
+    open_complaints: int
+    in_progress_complaints: int
+    resolved_complaints: int
+    rejected_complaints: int
+    deferred_complaints: int
+    overdue_complaints: int
+    resolution_rate: float
+    average_resolution_time_hours: Optional[float] = None
+    last_activity_date: Optional[datetime] = None
+    most_common_category: Optional[str] = None
+    most_assigned_team: Optional[str] = None
+    active_districts_count: int
+    active_mukhtars_count: int
+    closure_signal: str
+    overdue_signal: str
+    speed_signal: str
+
+
+class GovernorPerformanceHighlights(BaseModel):
+    best_performing_municipality: Optional[str] = None
+    worst_performing_municipality: Optional[str] = None
+    highest_backlog_municipality: Optional[str] = None
+    fastest_closure_municipality: Optional[str] = None
+
+
+class GovernorPerformanceDashboard(BaseModel):
+    highlights: GovernorPerformanceHighlights
+    municipalities: list[GovernorMunicipalityPerformance] = []
+
+
+class MayorDistrictPerformance(BaseModel):
+    district_id: UUID
+    district_name: str
+    mukhtar_name: Optional[str] = None
+    total_complaints: int
+    open_complaints: int
+    resolved_complaints: int
+    overdue_complaints: int
+    average_resolution_time_hours: Optional[float] = None
+    last_activity_date: Optional[datetime] = None
+    most_common_category: Optional[str] = None
+    closure_signal: str
+    overdue_signal: str
+    speed_signal: str
+
+
+class MayorTeamPerformance(BaseModel):
+    team_id: UUID
+    team_name: str
+    leader_name: str
+    is_active: bool
+    assigned_complaints: int
+    resolved_count: int
+    overdue_count: int
+    average_closure_time_hours: Optional[float] = None
+    closure_signal: str
+    overdue_signal: str
+    speed_signal: str
+
+
+class MayorPerformanceHighlights(BaseModel):
+    best_performing_district: Optional[str] = None
+    highest_backlog_district: Optional[str] = None
+    most_active_mukhtar: Optional[str] = None
+    least_responsive_district: Optional[str] = None
+    most_productive_team: Optional[str] = None
+
+
+class MayorPerformanceDashboard(BaseModel):
+    highlights: MayorPerformanceHighlights
+    districts: list[MayorDistrictPerformance] = []
+    teams: list[MayorTeamPerformance] = []
+
+
+class AccountabilityTopEntity(BaseModel):
+    name: str
+    count: int
+
+
+class AccountabilityReport(BaseModel):
+    period: MonthlyReportPeriod
+    complaints_opened_during_period: int
+    complaints_closed_during_period: int
+    complaints_still_open_from_previous_periods: int
+    overdue_complaints: int
+    closure_rate: float
+    average_time_to_resolution_hours: Optional[float] = None
+    top_categories: list[AccountabilityTopEntity] = []
+    top_teams: list[AccountabilityTopEntity] = []
+    top_delayed_entities: list[AccountabilityTopEntity] = []
 class MonthlyReport(BaseModel):
     period: MonthlyReportPeriod
     total: int

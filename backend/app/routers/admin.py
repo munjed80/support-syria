@@ -14,6 +14,8 @@ from app.deps import get_current_user, require_roles, require_district_scope, re
 from app.models import Attachment, AuditLog, District, Governorate, MaterialUsed, MunicipalTeam, Municipality, RequestUpdate, ServiceRequest, User
 from app.auth import hash_password
 from app.schemas import (
+    AccountabilityReport,
+    AccountabilityTopEntity,
     AdminServiceRequestCreate,
     AssignStaffRequest,
     AttachmentOut,
@@ -23,7 +25,14 @@ from app.schemas import (
     DistrictOut,
     DistrictUpdate,
     GovernorateOut,
+    GovernorMunicipalityPerformance,
+    GovernorPerformanceDashboard,
+    GovernorPerformanceHighlights,
     InternalNoteRequest,
+    MayorDistrictPerformance,
+    MayorPerformanceDashboard,
+    MayorPerformanceHighlights,
+    MayorTeamPerformance,
     MaterialUsedCreate,
     MaterialUsedOut,
     MunicipalTeamCreate,
@@ -76,6 +85,21 @@ def _log(db: Session, actor_id, action: str, entity_type: str, entity_id: str, d
         details=details,
     )
     db.add(entry)
+
+
+def _signal_from_ratio(value: float, good_threshold: float, moderate_threshold: float, invert: bool = False) -> str:
+    """Map metric ratio/avg into good/moderate/poor."""
+    if invert:
+        if value <= good_threshold:
+            return "good"
+        if value <= moderate_threshold:
+            return "moderate"
+        return "poor"
+    if value >= good_threshold:
+        return "good"
+    if value >= moderate_threshold:
+        return "moderate"
+    return "poor"
 
 
 def _extract_name_code(name: str, length: int = 3) -> str:
@@ -521,6 +545,320 @@ def get_dashboard(
 
 
 # ─── Requests ─────────────────────────────────────────────────────────────────
+
+@router.get("/performance/governor", response_model=GovernorPerformanceDashboard)
+def governor_performance_dashboard(
+    sort_by: str = Query("open_complaints"),
+    district_id: Optional[UUID] = Query(None),
+    current_user: User = Depends(require_roles("governor")),
+    db: Session = Depends(get_db),
+):
+    now = datetime.now(timezone.utc)
+    valid_sort = {"open_complaints", "overdue_complaints", "slowest_resolution_time", "best_resolution_rate", "municipality_name"}
+    if sort_by not in valid_sort:
+        raise HTTPException(status_code=422, detail="sort_by غير صالح")
+
+    q = (
+        db.query(ServiceRequest, Municipality.name.label("municipality_name"))
+        .join(Municipality, Municipality.id == ServiceRequest.municipality_id)
+        .filter(Municipality.governorate_id == current_user.governorate_id)
+    )
+    if district_id is not None:
+        district = (
+            db.query(District)
+            .join(Municipality, Municipality.id == District.municipality_id)
+            .filter(
+                District.id == district_id,
+                Municipality.governorate_id == current_user.governorate_id,
+            )
+            .first()
+        )
+        if not district:
+            raise HTTPException(status_code=404, detail="الحي غير موجود أو خارج النطاق")
+        q = q.filter(ServiceRequest.district_id == district_id)
+
+    rows = q.all()
+    active_districts = dict(
+        db.query(Municipality.id, func.count(District.id))
+        .join(District, District.municipality_id == Municipality.id)
+        .filter(
+            Municipality.governorate_id == current_user.governorate_id,
+            District.is_active.is_(True),
+        )
+        .group_by(Municipality.id)
+        .all()
+    )
+    active_mukhtars = dict(
+        db.query(Municipality.id, func.count(User.id))
+        .join(District, District.municipality_id == Municipality.id)
+        .join(User, User.district_id == District.id)
+        .filter(
+            Municipality.governorate_id == current_user.governorate_id,
+            User.role == "mukhtar",
+            User.is_active.is_(True),
+        )
+        .group_by(Municipality.id)
+        .all()
+    )
+
+    stats: Dict[UUID, Dict[str, Any]] = {}
+    for req, municipality_name in rows:
+        entry = stats.setdefault(
+            req.municipality_id,
+            {
+                "municipality_id": req.municipality_id,
+                "municipality_name": municipality_name,
+                "total": 0,
+                "open": 0,
+                "in_progress": 0,
+                "resolved": 0,
+                "rejected": 0,
+                "deferred": 0,
+                "overdue": 0,
+                "resolved_hours_total": 0.0,
+                "resolved_hours_count": 0,
+                "last_activity_date": None,
+                "category_counts": {},
+                "team_counts": {},
+            },
+        )
+        entry["total"] += 1
+        if req.status in ("new", "under_review"):
+            entry["open"] += 1
+        if req.status == "in_progress":
+            entry["in_progress"] += 1
+        if req.status == "resolved":
+            entry["resolved"] += 1
+            if req.closed_at:
+                entry["resolved_hours_total"] += max((req.closed_at - req.created_at).total_seconds(), 0) / 3600
+                entry["resolved_hours_count"] += 1
+        if req.status == "rejected":
+            entry["rejected"] += 1
+        if req.status == "deferred":
+            entry["deferred"] += 1
+        if req.closed_at is None and req.sla_deadline and req.sla_deadline < now:
+            entry["overdue"] += 1
+
+        if entry["last_activity_date"] is None or req.updated_at > entry["last_activity_date"]:
+            entry["last_activity_date"] = req.updated_at
+        entry["category_counts"][req.category] = entry["category_counts"].get(req.category, 0) + 1
+        team_name = req.responsible_team_name or req.responsible_team
+        if team_name:
+            entry["team_counts"][team_name] = entry["team_counts"].get(team_name, 0) + 1
+
+    municipalities: list[GovernorMunicipalityPerformance] = []
+    for municipality_id, item in stats.items():
+        total = item["total"]
+        avg_hours = None
+        if item["resolved_hours_count"] > 0:
+            avg_hours = round(item["resolved_hours_total"] / item["resolved_hours_count"], 2)
+        resolution_rate = round((item["resolved"] / total) * 100, 2) if total else 0.0
+        overdue_rate = (item["overdue"] / total) if total else 0
+        most_common_category = max(item["category_counts"], key=item["category_counts"].get) if item["category_counts"] else None
+        most_assigned_team = max(item["team_counts"], key=item["team_counts"].get) if item["team_counts"] else None
+
+        municipalities.append(
+            GovernorMunicipalityPerformance(
+                municipality_id=municipality_id,
+                municipality_name=item["municipality_name"],
+                total_complaints=total,
+                open_complaints=item["open"],
+                in_progress_complaints=item["in_progress"],
+                resolved_complaints=item["resolved"],
+                rejected_complaints=item["rejected"],
+                deferred_complaints=item["deferred"],
+                overdue_complaints=item["overdue"],
+                resolution_rate=resolution_rate,
+                average_resolution_time_hours=avg_hours,
+                last_activity_date=item["last_activity_date"],
+                most_common_category=most_common_category,
+                most_assigned_team=most_assigned_team,
+                active_districts_count=int(active_districts.get(municipality_id, 0)),
+                active_mukhtars_count=int(active_mukhtars.get(municipality_id, 0)),
+                closure_signal=_signal_from_ratio(resolution_rate, 75, 50),
+                overdue_signal=_signal_from_ratio(overdue_rate, 0.05, 0.15, invert=True),
+                speed_signal=_signal_from_ratio(avg_hours if avg_hours is not None else 9999, 72, 120, invert=True),
+            )
+        )
+
+    if sort_by == "open_complaints":
+        municipalities.sort(key=lambda x: x.open_complaints, reverse=True)
+    elif sort_by == "overdue_complaints":
+        municipalities.sort(key=lambda x: x.overdue_complaints, reverse=True)
+    elif sort_by == "slowest_resolution_time":
+        municipalities.sort(key=lambda x: x.average_resolution_time_hours or 0, reverse=True)
+    elif sort_by == "best_resolution_rate":
+        municipalities.sort(key=lambda x: x.resolution_rate, reverse=True)
+    else:
+        municipalities.sort(key=lambda x: x.municipality_name)
+
+    def _score(m: GovernorMunicipalityPerformance) -> float:
+        overdue_rate_pct = (m.overdue_complaints / m.total_complaints) * 100 if m.total_complaints else 0
+        speed_penalty = m.average_resolution_time_hours or 999
+        return (m.resolution_rate * 2) - overdue_rate_pct - (speed_penalty / 10)
+
+    best = max(municipalities, key=_score).municipality_name if municipalities else None
+    worst = min(municipalities, key=_score).municipality_name if municipalities else None
+    backlog = max(municipalities, key=lambda m: m.open_complaints + m.in_progress_complaints).municipality_name if municipalities else None
+    fastest = min(
+        [m for m in municipalities if m.average_resolution_time_hours is not None],
+        key=lambda m: m.average_resolution_time_hours,
+    ).municipality_name if any(m.average_resolution_time_hours is not None for m in municipalities) else None
+
+    return GovernorPerformanceDashboard(
+        highlights=GovernorPerformanceHighlights(
+            best_performing_municipality=best,
+            worst_performing_municipality=worst,
+            highest_backlog_municipality=backlog,
+            fastest_closure_municipality=fastest,
+        ),
+        municipalities=municipalities,
+    )
+
+
+@router.get("/performance/mayor", response_model=MayorPerformanceDashboard)
+def mayor_performance_dashboard(
+    district_id: Optional[UUID] = Query(None),
+    current_user: User = Depends(require_roles("mayor", "municipal_admin")),
+    db: Session = Depends(get_db),
+):
+    now = datetime.now(timezone.utc)
+    requests_q = db.query(ServiceRequest).filter(ServiceRequest.municipality_id == current_user.municipality_id)
+    if district_id:
+        district = db.query(District).filter(
+            District.id == district_id,
+            District.municipality_id == current_user.municipality_id,
+        ).first()
+        if not district:
+            raise HTTPException(status_code=404, detail="الحي غير موجود أو خارج نطاق البلدية")
+        requests_q = requests_q.filter(ServiceRequest.district_id == district_id)
+    requests = requests_q.all()
+
+    mukhtars = db.query(User).filter(
+        User.role == "mukhtar",
+        User.district_id.isnot(None),
+        User.is_active.is_(True),
+    ).all()
+    mukhtar_by_district = {m.district_id: m.full_name for m in mukhtars}
+
+    district_names = dict(
+        db.query(District.id, District.name)
+        .filter(District.municipality_id == current_user.municipality_id)
+        .all()
+    )
+    district_stats: Dict[UUID, Dict[str, Any]] = {}
+    for req in requests:
+        entry = district_stats.setdefault(
+            req.district_id,
+            {
+                "district_name": district_names.get(req.district_id, "—"),
+                "total": 0,
+                "open": 0,
+                "resolved": 0,
+                "overdue": 0,
+                "resolved_hours_total": 0.0,
+                "resolved_hours_count": 0,
+                "last_activity_date": None,
+                "category_counts": {},
+                "mukhtar_name": mukhtar_by_district.get(req.district_id),
+            },
+        )
+        entry["total"] += 1
+        if req.status in ("new", "under_review", "in_progress"):
+            entry["open"] += 1
+        if req.status == "resolved":
+            entry["resolved"] += 1
+            if req.closed_at:
+                entry["resolved_hours_total"] += max((req.closed_at - req.created_at).total_seconds(), 0) / 3600
+                entry["resolved_hours_count"] += 1
+        if req.closed_at is None and req.sla_deadline and req.sla_deadline < now:
+            entry["overdue"] += 1
+        if entry["last_activity_date"] is None or req.updated_at > entry["last_activity_date"]:
+            entry["last_activity_date"] = req.updated_at
+        entry["category_counts"][req.category] = entry["category_counts"].get(req.category, 0) + 1
+
+    district_rows: list[MayorDistrictPerformance] = []
+    for did, item in district_stats.items():
+        avg_hours = None
+        if item["resolved_hours_count"] > 0:
+            avg_hours = round(item["resolved_hours_total"] / item["resolved_hours_count"], 2)
+        closure_rate = (item["resolved"] / item["total"]) * 100 if item["total"] else 0
+        overdue_rate = (item["overdue"] / item["total"]) if item["total"] else 0
+        district_rows.append(
+            MayorDistrictPerformance(
+                district_id=did,
+                district_name=item["district_name"],
+                mukhtar_name=item["mukhtar_name"],
+                total_complaints=item["total"],
+                open_complaints=item["open"],
+                resolved_complaints=item["resolved"],
+                overdue_complaints=item["overdue"],
+                average_resolution_time_hours=avg_hours,
+                last_activity_date=item["last_activity_date"],
+                most_common_category=max(item["category_counts"], key=item["category_counts"].get) if item["category_counts"] else None,
+                closure_signal=_signal_from_ratio(closure_rate, 75, 50),
+                overdue_signal=_signal_from_ratio(overdue_rate, 0.05, 0.15, invert=True),
+                speed_signal=_signal_from_ratio(avg_hours if avg_hours is not None else 9999, 72, 120, invert=True),
+            )
+        )
+
+    teams = db.query(MunicipalTeam).filter(MunicipalTeam.municipality_id == current_user.municipality_id).all()
+    team_rows: list[MayorTeamPerformance] = []
+    for team in teams:
+        team_reqs = [r for r in requests if r.responsible_team_id == team.id]
+        assigned = len(team_reqs)
+        resolved_count = len([r for r in team_reqs if r.status == "resolved"])
+        overdue_count = len([r for r in team_reqs if r.closed_at is None and r.sla_deadline and r.sla_deadline < now])
+        closure_hours = [
+            max((r.closed_at - r.created_at).total_seconds(), 0) / 3600
+            for r in team_reqs
+            if r.status == "resolved" and r.closed_at
+        ]
+        avg_closure = round(sum(closure_hours) / len(closure_hours), 2) if closure_hours else None
+        closure_rate = (resolved_count / assigned) * 100 if assigned else 0
+        overdue_rate = (overdue_count / assigned) if assigned else 0
+        team_rows.append(
+            MayorTeamPerformance(
+                team_id=team.id,
+                team_name=team.team_name,
+                leader_name=team.leader_name,
+                is_active=team.is_active,
+                assigned_complaints=assigned,
+                resolved_count=resolved_count,
+                overdue_count=overdue_count,
+                average_closure_time_hours=avg_closure,
+                closure_signal=_signal_from_ratio(closure_rate, 75, 50),
+                overdue_signal=_signal_from_ratio(overdue_rate, 0.05, 0.15, invert=True),
+                speed_signal=_signal_from_ratio(avg_closure if avg_closure is not None else 9999, 72, 120, invert=True),
+            )
+        )
+
+    district_rows.sort(key=lambda x: x.open_complaints + x.overdue_complaints, reverse=True)
+    team_rows.sort(key=lambda x: x.assigned_complaints, reverse=True)
+    best_district = max(district_rows, key=lambda d: (d.resolved_complaints, -d.overdue_complaints)).district_name if district_rows else None
+    backlog_district = max(district_rows, key=lambda d: d.open_complaints).district_name if district_rows else None
+    least_responsive = max(
+        district_rows,
+        key=lambda d: (d.average_resolution_time_hours or 9999, d.overdue_complaints),
+    ).district_name if district_rows else None
+    mukhtar_activity = {}
+    for d in district_rows:
+        if d.mukhtar_name:
+            mukhtar_activity[d.mukhtar_name] = mukhtar_activity.get(d.mukhtar_name, 0) + d.total_complaints
+    most_active_mukhtar = max(mukhtar_activity, key=mukhtar_activity.get) if mukhtar_activity else None
+    productive_team = max(team_rows, key=lambda t: (t.resolved_count, -t.overdue_count)).team_name if team_rows else None
+
+    return MayorPerformanceDashboard(
+        highlights=MayorPerformanceHighlights(
+            best_performing_district=best_district,
+            highest_backlog_district=backlog_district,
+            most_active_mukhtar=most_active_mukhtar,
+            least_responsive_district=least_responsive,
+            most_productive_team=productive_team,
+        ),
+        districts=district_rows,
+        teams=team_rows,
+    )
 
 @router.get("/requests", response_model=PaginatedRequests)
 def list_requests(
@@ -1379,6 +1717,150 @@ def _build_report(
         top_district=top_district,
         by_category=[ReportCountEntry(name=r[0], count=r[1]) for r in by_category_rows],
         by_status=[ReportCountEntry(name=r[0], count=r[1]) for r in by_status_rows],
+    )
+
+
+@router.get("/reports/accountability", response_model=AccountabilityReport)
+def accountability_report(
+    month: int = Query(..., ge=1, le=12),
+    year: int = Query(..., ge=2000, le=2100),
+    municipality_id: Optional[UUID] = Query(None),
+    district_id: Optional[UUID] = Query(None),
+    current_user: User = Depends(require_roles("governor", "mayor", "municipal_admin")),
+    db: Session = Depends(get_db),
+):
+    start, end_exclusive = _month_range(year, month)
+    now = datetime.now(timezone.utc)
+    base_q = db.query(ServiceRequest)
+
+    if current_user.role == "governor":
+        from sqlalchemy import select as sa_select
+        mun_subq = sa_select(Municipality.id).where(Municipality.governorate_id == current_user.governorate_id)
+        base_q = base_q.filter(ServiceRequest.municipality_id.in_(mun_subq))
+        if municipality_id:
+            mun = db.query(Municipality).filter(
+                Municipality.id == municipality_id,
+                Municipality.governorate_id == current_user.governorate_id,
+            ).first()
+            if not mun:
+                raise HTTPException(status_code=404, detail="البلدية غير موجودة أو خارج النطاق")
+            base_q = base_q.filter(ServiceRequest.municipality_id == municipality_id)
+    else:
+        base_q = base_q.filter(ServiceRequest.municipality_id == current_user.municipality_id)
+
+    if district_id:
+        district_q = db.query(District).filter(District.id == district_id)
+        if current_user.role == "governor":
+            district_q = district_q.join(Municipality, Municipality.id == District.municipality_id).filter(
+                Municipality.governorate_id == current_user.governorate_id
+            )
+        else:
+            district_q = district_q.filter(District.municipality_id == current_user.municipality_id)
+        if not district_q.first():
+            raise HTTPException(status_code=404, detail="الحي غير موجود أو خارج النطاق")
+        base_q = base_q.filter(ServiceRequest.district_id == district_id)
+
+    opened_q = base_q.filter(ServiceRequest.created_at >= start, ServiceRequest.created_at < end_exclusive)
+    closed_q = base_q.filter(
+        ServiceRequest.closed_at.isnot(None),
+        ServiceRequest.closed_at >= start,
+        ServiceRequest.closed_at < end_exclusive,
+    )
+    carried_q = base_q.filter(
+        ServiceRequest.created_at < start,
+        ServiceRequest.status.in_(["new", "under_review", "in_progress", "deferred"]),
+    )
+    overdue_q = base_q.filter(
+        ServiceRequest.closed_at.is_(None),
+        ServiceRequest.sla_deadline.isnot(None),
+        ServiceRequest.sla_deadline < now,
+    )
+
+    opened = opened_q.count()
+    closed = closed_q.count()
+    carried = carried_q.count()
+    overdue = overdue_q.count()
+    closure_rate = round((closed / opened) * 100, 2) if opened else 0.0
+
+    closed_rows = closed_q.with_entities(ServiceRequest.created_at, ServiceRequest.closed_at).all()
+    avg_hours = None
+    if closed_rows:
+        total_hours = 0.0
+        for created_at, closed_at in closed_rows:
+            if created_at and closed_at:
+                total_hours += max((closed_at - created_at).total_seconds(), 0) / 3600
+        avg_hours = round(total_hours / len(closed_rows), 2)
+
+    top_categories = [
+        AccountabilityTopEntity(name=row[0], count=row[1])
+        for row in (
+            opened_q.with_entities(ServiceRequest.category, func.count(ServiceRequest.id))
+            .group_by(ServiceRequest.category)
+            .order_by(func.count(ServiceRequest.id).desc())
+            .limit(5)
+            .all()
+        )
+    ]
+    top_teams = [
+        AccountabilityTopEntity(name=row[0], count=row[1])
+        for row in (
+            opened_q.filter(ServiceRequest.responsible_team_name.isnot(None))
+            .with_entities(ServiceRequest.responsible_team_name, func.count(ServiceRequest.id))
+            .group_by(ServiceRequest.responsible_team_name)
+            .order_by(func.count(ServiceRequest.id).desc())
+            .limit(5)
+            .all()
+        )
+    ]
+
+    if district_id:
+        delayed_entities = [
+            AccountabilityTopEntity(name=row[0], count=row[1])
+            for row in (
+                overdue_q.with_entities(ServiceRequest.responsible_team_name, func.count(ServiceRequest.id))
+                .filter(ServiceRequest.responsible_team_name.isnot(None))
+                .group_by(ServiceRequest.responsible_team_name)
+                .order_by(func.count(ServiceRequest.id).desc())
+                .limit(5)
+                .all()
+            )
+        ]
+    elif municipality_id or current_user.role in ("mayor", "municipal_admin"):
+        delayed_entities = [
+            AccountabilityTopEntity(name=row[0], count=row[1])
+            for row in (
+                overdue_q.join(District, District.id == ServiceRequest.district_id)
+                .with_entities(District.name, func.count(ServiceRequest.id))
+                .group_by(District.name)
+                .order_by(func.count(ServiceRequest.id).desc())
+                .limit(5)
+                .all()
+            )
+        ]
+    else:
+        delayed_entities = [
+            AccountabilityTopEntity(name=row[0], count=row[1])
+            for row in (
+                overdue_q.join(Municipality, Municipality.id == ServiceRequest.municipality_id)
+                .with_entities(Municipality.name, func.count(ServiceRequest.id))
+                .group_by(Municipality.name)
+                .order_by(func.count(ServiceRequest.id).desc())
+                .limit(5)
+                .all()
+            )
+        ]
+
+    return AccountabilityReport(
+        period={"month": month, "year": year},
+        complaints_opened_during_period=opened,
+        complaints_closed_during_period=closed,
+        complaints_still_open_from_previous_periods=carried,
+        overdue_complaints=overdue,
+        closure_rate=closure_rate,
+        average_time_to_resolution_hours=avg_hours,
+        top_categories=top_categories,
+        top_teams=top_teams,
+        top_delayed_entities=delayed_entities,
     )
 
 
