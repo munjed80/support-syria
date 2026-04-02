@@ -37,6 +37,7 @@ export interface UserOut {
   municipality_id?: string
   district_id?: string
   is_active: boolean
+  created_at?: string
 }
 
 export interface GovernorateOut {
@@ -470,6 +471,7 @@ export function toUser(u: UserOut): User {
     municipalityId: u.municipality_id ? String(u.municipality_id) : undefined,
     districtId: u.district_id ? String(u.district_id) : undefined,
     isActive: u.is_active,
+    createdAt: u.created_at ?? undefined,
   }
 }
 
@@ -611,6 +613,10 @@ class ApiClient {
       method: 'PATCH',
       body: JSON.stringify(payload),
     })
+  }
+
+  async deleteMunicipality(id: string): Promise<void> {
+    return this.request<void>(`/admin/municipalities/${id}`, { method: 'DELETE' })
   }
 
   async getAdminDistricts(): Promise<DistrictOut[]> {

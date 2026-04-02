@@ -35,6 +35,7 @@ export interface User {
   municipalityId?: string
   districtId?: string
   isActive: boolean
+  createdAt?: string
 }
 
 export interface ServiceRequest {

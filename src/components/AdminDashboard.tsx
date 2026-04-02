@@ -18,7 +18,7 @@ import {
   TableHeader,
   TableRow
 } from '@/components/ui/table'
-import { SignOut, ChartBar, Buildings, Warning, ClipboardText, Plus, MagnifyingGlass, MapPin, Users, CheckCircle, Timer, Wrench, Printer } from '@phosphor-icons/react'
+import { SignOut, ChartBar, Buildings, Warning, ClipboardText, Plus, MagnifyingGlass, MapPin, Users, CheckCircle, Timer, Wrench, Printer, PencilSimple, CaretDown } from '@phosphor-icons/react'
 import { CATEGORIES, STATUSES, STATUS_COLORS, PRIORITIES, PRIORITY_BADGE_COLORS, RESPONSIBLE_TEAMS, formatRelativeTime, isOverdue } from '@/lib/constants'
 import { RequestDetailsDialog } from '@/components/RequestDetailsDialog'
 import { PrintReport } from '@/components/PrintReport'
@@ -30,25 +30,52 @@ interface AdminDashboardProps {
   onLogout: () => void
 }
 
+function EmptyState({ title, description, actionLabel, onAction }: { title: string; description: string; actionLabel: string; onAction: () => void }) {
+  return (
+    <div className="py-10 text-center space-y-3">
+      <p className="font-semibold">{title}</p>
+      <p className="text-sm text-muted-foreground">{description}</p>
+      <Button onClick={onAction}>
+        <Plus className="ml-2" size={16} />
+        {actionLabel}
+      </Button>
+    </div>
+  )
+}
+
 // ─── Municipality Management (Governor) ──────────────────────────────────────
 
 function MunicipalitiesView({ user }: { user: User }) {
   const [municipalities, setMunicipalities] = useState<Municipality[]>([])
+  const [districts, setDistricts] = useState<District[]>([])
+  const [mayors, setMayors] = useState<User[]>([])
+  const [requests, setRequests] = useState<ServiceRequest[]>([])
   const [loading, setLoading] = useState(false)
   const [showAdd, setShowAdd] = useState(false)
   const [newName, setNewName] = useState('')
   const [submitting, setSubmitting] = useState(false)
-  const [editing, setEditing] = useState<District | null>(null)
+  const [editing, setEditing] = useState<Municipality | null>(null)
   const [editName, setEditName] = useState('')
-  const [editing, setEditing] = useState<District | null>(null)
-  const [editName, setEditName] = useState('')
+  const [deleteTarget, setDeleteTarget] = useState<Municipality | null>(null)
 
-  const load = useCallback(() => {
+  const load = useCallback(async () => {
     setLoading(true)
-    api.getMunicipalities()
-      .then((list) => setMunicipalities(list.map(toMunicipality)))
-      .catch(() => toast.error('تعذّر تحميل البلديات'))
-      .finally(() => setLoading(false))
+    try {
+      const [munList, districtList, mayorsList, requestsList] = await Promise.all([
+        api.getMunicipalities(),
+        api.getAdminDistricts(),
+        api.getMayors(),
+        api.getRequests({ page: 1, page_size: 500 }),
+      ])
+      setMunicipalities(munList.map(toMunicipality))
+      setDistricts(districtList.map(toDistrict))
+      setMayors(mayorsList.map(toUser))
+      setRequests(requestsList.items.map(toServiceRequest))
+    } catch {
+      toast.error('تعذّر تحميل بيانات البلديات')
+    } finally {
+      setLoading(false)
+    }
   }, [])
 
   useEffect(() => { load() }, [load])
@@ -57,10 +84,10 @@ function MunicipalitiesView({ user }: { user: User }) {
     if (!newName.trim()) return
     setSubmitting(true)
     try {
-      await api.createMunicipality(newName.trim())
+      const created = await api.createMunicipality(newName.trim())
+      setMunicipalities((prev) => [...prev, toMunicipality(created)].sort((a, b) => a.name.localeCompare(b.name, 'ar')))
       setNewName('')
       setShowAdd(false)
-      load()
       toast.success('تمت إضافة البلدية')
     } catch (e: any) {
       toast.error(e.message || 'فشل إضافة البلدية')
@@ -71,11 +98,38 @@ function MunicipalitiesView({ user }: { user: User }) {
 
   const toggleActive = async (mun: Municipality) => {
     try {
-      await api.updateMunicipality(mun.id, { is_active: !mun.isActive })
-      load()
+      const updated = await api.updateMunicipality(mun.id, { is_active: !mun.isActive })
+      const mapped = toMunicipality(updated)
+      setMunicipalities((prev) => prev.map((item) => item.id === mun.id ? mapped : item))
       toast.success(mun.isActive ? 'تم تعطيل البلدية' : 'تم تفعيل البلدية')
     } catch (e: any) {
       toast.error(e.message || 'فشل التحديث')
+    }
+  }
+
+  const handleSaveEdit = async () => {
+    if (!editing || !editName.trim()) return
+    try {
+      const updated = await api.updateMunicipality(editing.id, { name: editName.trim() })
+      const mapped = toMunicipality(updated)
+      setMunicipalities((prev) => prev.map((item) => item.id === editing.id ? mapped : item))
+      setEditing(null)
+      setEditName('')
+      toast.success('تم تعديل البلدية')
+    } catch (e: any) {
+      toast.error(e.message || 'فشل تعديل البلدية')
+    }
+  }
+
+  const handleDelete = async () => {
+    if (!deleteTarget) return
+    try {
+      await api.deleteMunicipality(deleteTarget.id)
+      setMunicipalities((prev) => prev.filter((item) => item.id !== deleteTarget.id))
+      setDeleteTarget(null)
+      toast.success('تم حذف البلدية')
+    } catch (e: any) {
+      toast.error(e.message || 'تعذّر حذف البلدية، يمكنك تعطيلها بدلاً من الحذف')
     }
   }
 
@@ -117,20 +171,31 @@ function MunicipalitiesView({ user }: { user: User }) {
           {loading ? (
             <p className="text-center text-muted-foreground py-8">جارٍ التحميل...</p>
           ) : municipalities.length === 0 ? (
-            <p className="text-center text-muted-foreground py-8">لا توجد بلديات</p>
+            <EmptyState
+              title="لا توجد بلديات بعد"
+              description="ابدأ بإضافة أول بلدية لتفعيل التسلسل الإداري."
+              actionLabel="إضافة أول بلدية"
+              onAction={() => setShowAdd(true)}
+            />
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>اسم البلدية</TableHead>
+                  <TableHead>عدد الأحياء</TableHead>
+                  <TableHead>عدد رؤساء البلديات</TableHead>
+                  <TableHead>عدد الشكاوى</TableHead>
                   <TableHead>الحالة</TableHead>
-                  <TableHead>إجراء</TableHead>
+                  <TableHead>الإجراءات</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {municipalities.map((mun) => (
                   <TableRow key={mun.id}>
                     <TableCell className="font-medium">{mun.name}</TableCell>
+                    <TableCell>{districts.filter((d) => d.municipalityId === mun.id).length}</TableCell>
+                    <TableCell>{mayors.filter((m) => m.municipalityId === mun.id).length}</TableCell>
+                    <TableCell>{requests.filter((r) => r.municipalityId === mun.id).length}</TableCell>
                     <TableCell>
                       <Badge variant={mun.isActive ? 'default' : 'secondary'}>
                         {mun.isActive ? 'مفعّلة' : 'معطّلة'}
@@ -145,6 +210,13 @@ function MunicipalitiesView({ user }: { user: User }) {
                         <Label className="text-sm">
                           {mun.isActive ? 'تعطيل' : 'تفعيل'}
                         </Label>
+                        <Button size="sm" variant="outline" onClick={() => { setEditing(mun); setEditName(mun.name) }}>
+                          <PencilSimple className="ml-1" size={14} />
+                          تعديل
+                        </Button>
+                        <Button size="sm" variant="destructive" onClick={() => setDeleteTarget(mun)}>
+                          حذف
+                        </Button>
                       </div>
                     </TableCell>
                   </TableRow>
@@ -154,6 +226,30 @@ function MunicipalitiesView({ user }: { user: User }) {
           )}
         </CardContent>
       </Card>
+      {editing && (
+        <Dialog open={!!editing} onOpenChange={() => setEditing(null)}>
+          <DialogContent className="max-w-md">
+            <DialogHeader><DialogTitle>تعديل البلدية</DialogTitle></DialogHeader>
+            <Input value={editName} onChange={(e) => setEditName(e.target.value)} dir="rtl" />
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setEditing(null)}>إلغاء</Button>
+              <Button onClick={handleSaveEdit}>حفظ</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+      {deleteTarget && (
+        <Dialog open={!!deleteTarget} onOpenChange={() => setDeleteTarget(null)}>
+          <DialogContent className="max-w-md">
+            <DialogHeader><DialogTitle>تأكيد حذف البلدية</DialogTitle></DialogHeader>
+            <p className="text-sm text-muted-foreground">سيتم حذف البلدية فقط إذا لم تكن مرتبطة بأحياء أو مستخدمين أو شكاوى.</p>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setDeleteTarget(null)}>إلغاء</Button>
+              <Button variant="destructive" onClick={handleDelete}>تأكيد الحذف</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   )
 }
@@ -162,17 +258,32 @@ function MunicipalitiesView({ user }: { user: User }) {
 
 function DistrictsView({ user }: { user: User }) {
   const [districts, setDistricts] = useState<District[]>([])
+  const [mukhtars, setMukhtars] = useState<User[]>([])
+  const [requests, setRequests] = useState<ServiceRequest[]>([])
   const [loading, setLoading] = useState(false)
   const [showAdd, setShowAdd] = useState(false)
   const [newName, setNewName] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [editing, setEditing] = useState<District | null>(null)
+  const [editName, setEditName] = useState('')
+  const [deleteTarget, setDeleteTarget] = useState<District | null>(null)
 
-  const load = useCallback(() => {
+  const load = useCallback(async () => {
     setLoading(true)
-    api.getAdminDistricts()
-      .then((list) => setDistricts(list.map(toDistrict)))
-      .catch(() => toast.error('تعذّر تحميل الأحياء'))
-      .finally(() => setLoading(false))
+    try {
+      const [districtList, mukhtarList, reqList] = await Promise.all([
+        api.getAdminDistricts(),
+        api.getMukhtars(),
+        api.getRequests({ page: 1, page_size: 500 }),
+      ])
+      setDistricts(districtList.map(toDistrict))
+      setMukhtars(mukhtarList.map(toUser))
+      setRequests(reqList.items.map(toServiceRequest))
+    } catch {
+      toast.error('تعذّر تحميل الأحياء')
+    } finally {
+      setLoading(false)
+    }
   }, [])
 
   useEffect(() => { load() }, [load])
@@ -181,10 +292,10 @@ function DistrictsView({ user }: { user: User }) {
     if (!newName.trim()) return
     setSubmitting(true)
     try {
-      await api.createDistrict(newName.trim())
+      const created = await api.createDistrict(newName.trim())
+      setDistricts((prev) => [...prev, toDistrict(created)].sort((a, b) => a.name.localeCompare(b.name, 'ar')))
       setNewName('')
       setShowAdd(false)
-      load()
       toast.success('تمت إضافة الحي')
     } catch (e: any) {
       toast.error(e.message || 'فشل إضافة الحي')
@@ -195,8 +306,9 @@ function DistrictsView({ user }: { user: User }) {
 
   const toggleActive = async (district: District) => {
     try {
-      await api.updateDistrict(district.id, { is_active: !district.isActive })
-      load()
+      const updated = await api.updateDistrict(district.id, { is_active: !district.isActive })
+      const mapped = toDistrict(updated)
+      setDistricts((prev) => prev.map((item) => item.id === district.id ? mapped : item))
       toast.success(district.isActive ? 'تم تعطيل الحي' : 'تم تفعيل الحي')
     } catch (e: any) {
       toast.error(e.message || 'فشل التحديث')
@@ -206,21 +318,23 @@ function DistrictsView({ user }: { user: User }) {
   const handleSaveEdit = async () => {
     if (!editing || !editName.trim()) return
     try {
-      await api.updateDistrict(editing.id, { name: editName.trim() })
+      const updated = await api.updateDistrict(editing.id, { name: editName.trim() })
+      const mapped = toDistrict(updated)
+      setDistricts((prev) => prev.map((item) => item.id === editing.id ? mapped : item))
       setEditing(null)
       setEditName('')
-      load()
       toast.success('تم تحديث الحي')
     } catch (e: any) {
       toast.error(e.message || 'فشل التحديث')
     }
   }
 
-  const handleDelete = async (district: District) => {
-    if (!confirm(`حذف الحي "${district.name}"؟`)) return
+  const handleDelete = async () => {
+    if (!deleteTarget) return
     try {
-      await api.deleteDistrict(district.id)
-      load()
+      await api.deleteDistrict(deleteTarget.id)
+      setDistricts((prev) => prev.filter((item) => item.id !== deleteTarget.id))
+      setDeleteTarget(null)
       toast.success('تم حذف الحي')
     } catch (e: any) {
       toast.error(e.message || 'تعذّر حذف الحي')
@@ -265,20 +379,29 @@ function DistrictsView({ user }: { user: User }) {
           {loading ? (
             <p className="text-center text-muted-foreground py-8">جارٍ التحميل...</p>
           ) : districts.length === 0 ? (
-            <p className="text-center text-muted-foreground py-8">لا توجد أحياء</p>
+            <EmptyState
+              title="لا توجد أحياء بعد"
+              description="أضف الحي الأول لتتمكن من إنشاء حسابات المخاتير وتوزيع الطلبات."
+              actionLabel="إضافة أول حي"
+              onAction={() => setShowAdd(true)}
+            />
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>اسم الحي</TableHead>
+                  <TableHead>المختار</TableHead>
+                  <TableHead>عدد الشكاوى</TableHead>
                   <TableHead>الحالة</TableHead>
-                  <TableHead>إجراء</TableHead>
+                  <TableHead>الإجراءات</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {districts.map((district) => (
                   <TableRow key={district.id}>
                     <TableCell className="font-medium">{district.name}</TableCell>
+                    <TableCell>{mukhtars.find((m) => m.districtId === district.id)?.fullName ?? 'غير مُعيّن'}</TableCell>
+                    <TableCell>{requests.filter((r) => r.districtId === district.id).length}</TableCell>
                     <TableCell>
                       <Badge variant={district.isActive ? 'default' : 'secondary'}>
                         {district.isActive ? 'مفعّل' : 'معطّل'}
@@ -296,7 +419,7 @@ function DistrictsView({ user }: { user: User }) {
                         <Button size="sm" variant="outline" onClick={() => { setEditing(district); setEditName(district.name) }}>
                           تعديل
                         </Button>
-                        <Button size="sm" variant="destructive" onClick={() => handleDelete(district)}>
+                        <Button size="sm" variant="destructive" onClick={() => setDeleteTarget(district)}>
                           حذف
                         </Button>
                       </div>
@@ -316,6 +439,18 @@ function DistrictsView({ user }: { user: User }) {
             <DialogFooter>
               <Button variant="outline" onClick={() => setEditing(null)}>إلغاء</Button>
               <Button onClick={handleSaveEdit}>حفظ</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+      {deleteTarget && (
+        <Dialog open={!!deleteTarget} onOpenChange={() => setDeleteTarget(null)}>
+          <DialogContent className="max-w-md">
+            <DialogHeader><DialogTitle>تأكيد حذف الحي</DialogTitle></DialogHeader>
+            <p className="text-sm text-muted-foreground">سيتم الحذف فقط إذا لم تكن هناك حسابات أو شكاوى مرتبطة بهذا الحي.</p>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setDeleteTarget(null)}>إلغاء</Button>
+              <Button variant="destructive" onClick={handleDelete}>تأكيد الحذف</Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
@@ -844,108 +979,54 @@ function RequestsView({ user }: { user: User }) {
               )}
             </div>
 
-            {/* Multi-select status */}
-            <div className="flex flex-wrap gap-2">
-              <span className="text-sm text-muted-foreground self-center ml-1">الحالة:</span>
-              {Object.entries(STATUSES).map(([key, label]) => (
-                <Badge
-                  key={key}
-                  variant={statusFilter.includes(key) ? 'default' : 'outline'}
-                  className="cursor-pointer select-none"
-                  onClick={() => toggleMultiFilter(key, statusFilter, setStatusFilter)}
-                >
-                  {label}
-                </Badge>
-              ))}
-            </div>
-
-            <div className="flex flex-wrap gap-2">
-              <span className="text-sm text-muted-foreground self-center ml-1">الفئة:</span>
-              {Object.entries(CATEGORIES).map(([key, label]) => (
-                <Badge
-                  key={key}
-                  variant={categoryFilter.includes(key) ? 'default' : 'outline'}
-                  className="cursor-pointer select-none"
-                  onClick={() => toggleMultiFilter(key, categoryFilter, setCategoryFilter)}
-                >
-                  {label}
-                </Badge>
-              ))}
-            </div>
-
-            <div className="flex flex-wrap gap-2">
-              <span className="text-sm text-muted-foreground self-center ml-1">الأولوية:</span>
-              {Object.entries(PRIORITIES).map(([key, label]) => (
-                <Badge
-                  key={key}
-                  variant={priorityFilter.includes(key) ? 'default' : 'outline'}
-                  className="cursor-pointer select-none"
-                  onClick={() => toggleMultiFilter(key, priorityFilter, setPriorityFilter)}
-                >
-                  {label}
-                </Badge>
-              ))}
-            </div>
-
-            {/* Responsible team filter (all roles) */}
-            <div className="flex flex-wrap gap-2">
-              <span className="text-sm text-muted-foreground self-center ml-1">الفريق المسؤول:</span>
-              {Object.entries(RESPONSIBLE_TEAMS).map(([key, label]) => (
-                <Badge
-                  key={key}
-                  variant={responsibleTeamFilter.includes(key) ? 'default' : 'outline'}
-                  className="cursor-pointer select-none"
-                  onClick={() => toggleMultiFilter(key, responsibleTeamFilter, setResponsibleTeamFilter)}
-                >
-                  {label}
-                </Badge>
-              ))}
-            </div>
-
-            {/* Advanced filters (all roles) */}
-            <div className="flex flex-wrap gap-4 items-center pt-1 border-t">
-              <div className="flex items-center gap-2">
-                <Switch
-                  id="overdue"
-                  checked={overdueFilter}
-                  onCheckedChange={(v) => { setOverdueFilter(v); setPage(1) }}
-                />
-                <Label htmlFor="overdue" className="cursor-pointer">متأخّرة</Label>
+            {hasActiveFilters && (
+              <div>
+                <Button variant="ghost" size="sm" onClick={clearAllFilters}>مسح الفلاتر</Button>
               </div>
-              {isGovernor && (
-                <div className="flex items-center gap-2">
-                  <Switch
-                    id="sla_breached"
-                    checked={slaBreachedFilter}
-                    onCheckedChange={(v) => { setSlaBreachedFilter(v); setPage(1) }}
-                  />
-                  <Label htmlFor="sla_breached" className="cursor-pointer">SLA منتهية</Label>
+            )}
+
+            <details className="rounded-md border p-3">
+              <summary className="cursor-pointer font-medium flex items-center gap-2">
+                <CaretDown size={14} />
+                فلاتر متقدمة
+              </summary>
+              <div className="space-y-4 mt-4">
+                <div className="flex flex-wrap gap-2">
+                  <span className="text-sm text-muted-foreground self-center ml-1">الحالة:</span>
+                  {Object.entries(STATUSES).map(([key, label]) => (
+                    <Badge key={key} variant={statusFilter.includes(key) ? 'default' : 'outline'} className="cursor-pointer select-none" onClick={() => toggleMultiFilter(key, statusFilter, setStatusFilter)}>{label}</Badge>
+                  ))}
                 </div>
-              )}
-              <div className="flex items-center gap-2">
-                <Label className="text-sm">من:</Label>
-                <Input
-                  type="date"
-                  value={dateFrom}
-                  onChange={(e) => { setDateFrom(e.target.value); setPage(1) }}
-                  className="w-36 text-sm"
-                />
+
+                <div className="flex flex-wrap gap-2">
+                  <span className="text-sm text-muted-foreground self-center ml-1">الفئة:</span>
+                  {Object.entries(CATEGORIES).map(([key, label]) => (
+                    <Badge key={key} variant={categoryFilter.includes(key) ? 'default' : 'outline'} className="cursor-pointer select-none" onClick={() => toggleMultiFilter(key, categoryFilter, setCategoryFilter)}>{label}</Badge>
+                  ))}
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                  <span className="text-sm text-muted-foreground self-center ml-1">الأولوية:</span>
+                  {Object.entries(PRIORITIES).map(([key, label]) => (
+                    <Badge key={key} variant={priorityFilter.includes(key) ? 'default' : 'outline'} className="cursor-pointer select-none" onClick={() => toggleMultiFilter(key, priorityFilter, setPriorityFilter)}>{label}</Badge>
+                  ))}
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                  <span className="text-sm text-muted-foreground self-center ml-1">الفريق المسؤول:</span>
+                  {Object.entries(RESPONSIBLE_TEAMS).map(([key, label]) => (
+                    <Badge key={key} variant={responsibleTeamFilter.includes(key) ? 'default' : 'outline'} className="cursor-pointer select-none" onClick={() => toggleMultiFilter(key, responsibleTeamFilter, setResponsibleTeamFilter)}>{label}</Badge>
+                  ))}
+                </div>
+
+                <div className="flex flex-wrap gap-4 items-center pt-1 border-t">
+                  <div className="flex items-center gap-2"><Switch id="overdue" checked={overdueFilter} onCheckedChange={(v) => { setOverdueFilter(v); setPage(1) }} /><Label htmlFor="overdue" className="cursor-pointer">متأخّرة</Label></div>
+                  {isGovernor && <div className="flex items-center gap-2"><Switch id="sla_breached" checked={slaBreachedFilter} onCheckedChange={(v) => { setSlaBreachedFilter(v); setPage(1) }} /><Label htmlFor="sla_breached" className="cursor-pointer">SLA منتهية</Label></div>}
+                  <div className="flex items-center gap-2"><Label className="text-sm">من:</Label><Input type="date" value={dateFrom} onChange={(e) => { setDateFrom(e.target.value); setPage(1) }} className="w-36 text-sm" /></div>
+                  <div className="flex items-center gap-2"><Label className="text-sm">إلى:</Label><Input type="date" value={dateTo} onChange={(e) => { setDateTo(e.target.value); setPage(1) }} className="w-36 text-sm" /></div>
+                </div>
               </div>
-              <div className="flex items-center gap-2">
-                <Label className="text-sm">إلى:</Label>
-                <Input
-                  type="date"
-                  value={dateTo}
-                  onChange={(e) => { setDateTo(e.target.value); setPage(1) }}
-                  className="w-36 text-sm"
-                />
-              </div>
-              {hasActiveFilters && (
-                <Button variant="ghost" size="sm" onClick={clearAllFilters}>
-                  مسح الفلاتر
-                </Button>
-              )}
-            </div>
+            </details>
           </div>
 
           {/* Table */}
@@ -1096,6 +1177,11 @@ function MayorsView({ user }: { user: User }) {
   const [municipalityId, setMunicipalityId] = useState('')
   const [createdCredentials, setCreatedCredentials] = useState<{ username: string; password: string } | null>(null)
   const [submitting, setSubmitting] = useState(false)
+  const [editing, setEditing] = useState<User | null>(null)
+  const [editFullName, setEditFullName] = useState('')
+  const [editUsername, setEditUsername] = useState('')
+  const [editMunicipalityId, setEditMunicipalityId] = useState('')
+  const [deleteTarget, setDeleteTarget] = useState<User | null>(null)
 
   const load = useCallback(() => {
     api.getMunicipalities()
@@ -1117,10 +1203,10 @@ function MayorsView({ user }: { user: User }) {
     try {
       const savedUsername = username.trim()
       const savedPassword = password
-      await api.createMayor({ full_name: fullName.trim(), username: savedUsername, password: savedPassword, municipality_id: municipalityId })
+      const created = await api.createMayor({ full_name: fullName.trim(), username: savedUsername, password: savedPassword, municipality_id: municipalityId })
       setCreatedCredentials({ username: savedUsername, password: savedPassword })
+      setMayors((prev) => [toUser(created), ...prev])
       setFullName(''); setUsername(''); setPassword(''); setMunicipalityId(''); setShowForm(false)
-      load()
       toast.success('تم إنشاء حساب رئيس البلدية')
     } catch (e: any) {
       toast.error(e.message || 'فشل إنشاء الحساب')
@@ -1129,24 +1215,50 @@ function MayorsView({ user }: { user: User }) {
 
   const toggleActive = async (mayor: User) => {
     try {
-      await api.updateAdminUser(mayor.id, { is_active: !mayor.isActive })
-      load(); toast.success(!mayor.isActive ? 'تم تفعيل الحساب' : 'تم تعطيل الحساب')
+      const updated = await api.updateAdminUser(mayor.id, { is_active: !mayor.isActive })
+      setMayors((prev) => prev.map((item) => item.id === mayor.id ? toUser(updated) : item))
+      toast.success(!mayor.isActive ? 'تم تفعيل الحساب' : 'تم تعطيل الحساب')
     } catch (e: any) { toast.error(e.message || 'فشل التحديث') }
   }
 
-  const handleDelete = async (mayor: User) => {
-    if (!confirm(`حذف حساب ${mayor.fullName}؟`)) return
-    try { await api.deleteAdminUser(mayor.id); load(); toast.success('تم حذف/تعطيل الحساب') } catch (e: any) { toast.error(e.message || 'تعذّر حذف الحساب') }
+  const handleSaveEdit = async () => {
+    if (!editing || !editFullName.trim() || !editUsername.trim() || !editMunicipalityId) return
+    try {
+      const updated = await api.updateAdminUser(editing.id, {
+        full_name: editFullName.trim(),
+        username: editUsername.trim(),
+        municipality_id: editMunicipalityId,
+      })
+      setMayors((prev) => prev.map((item) => item.id === editing.id ? toUser(updated) : item))
+      setEditing(null)
+      toast.success('تم تحديث بيانات رئيس البلدية')
+    } catch (e: any) {
+      toast.error(e.message || 'فشل التحديث')
+    }
   }
 
   const copyCredentials = (text: string) => navigator.clipboard.writeText(text).then(() => toast.success('تم النسخ')).catch(() => toast.error('تعذّر النسخ'))
 
+  const removeMayor = async () => {
+    if (!deleteTarget) return
+    try {
+      await api.deleteAdminUser(deleteTarget.id)
+      setMayors((prev) => prev.filter((item) => item.id !== deleteTarget.id))
+      setDeleteTarget(null)
+      toast.success('تم حذف/تعطيل الحساب')
+    } catch (e: any) {
+      toast.error(e.message || 'تعذّر حذف الحساب')
+    }
+  }
+
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between"><h2 className="text-xl font-semibold">رؤساء البلديات</h2><Button onClick={() => setShowForm(true)} size="sm"><Plus className="ml-2" size={16} />إنشاء حساب رئيس بلدية</Button></div>
+      <div className="flex items-center justify-between"><h2 className="text-xl font-semibold">رؤساء البلديات</h2><Button onClick={() => setShowForm(true)}><Plus className="ml-2" size={16} />إنشاء حساب رئيس بلدية</Button></div>
       {createdCredentials && <Card className="border-green-500/40 bg-green-50 dark:bg-green-950/20"><CardContent className="pt-4"><p className="font-semibold text-green-700 dark:text-green-400 mb-2">تم إنشاء الحساب بنجاح – احفظ بيانات الدخول الآن</p><div className="space-y-2 text-sm"><div className="flex items-center gap-2"><span className="text-muted-foreground w-28">اسم المستخدم:</span><span className="font-mono font-bold">{createdCredentials.username}</span><Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={() => copyCredentials(createdCredentials.username)}>نسخ</Button></div><div className="flex items-center gap-2"><span className="text-muted-foreground w-28">كلمة المرور:</span><span className="font-mono font-bold">{createdCredentials.password}</span><Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={() => copyCredentials(createdCredentials.password)}>نسخ</Button></div></div></CardContent></Card>}
       {showForm && <Card className="border-primary/30"><CardHeader><CardTitle className="text-base">بيانات رئيس البلدية الجديد</CardTitle></CardHeader><CardContent className="space-y-3"><div className="space-y-1"><Label>الاسم الكامل</Label><Input value={fullName} onChange={(e) => setFullName(e.target.value)} dir="rtl" /></div><div className="space-y-1"><Label>اسم المستخدم</Label><Input value={username} onChange={(e) => setUsername(e.target.value)} dir="ltr" /></div><div className="space-y-1"><Label>كلمة المرور</Label><Input value={password} onChange={(e) => setPassword(e.target.value)} type="text" dir="ltr" /></div><div className="space-y-1"><Label>البلدية</Label><Select value={municipalityId} onValueChange={setMunicipalityId}><SelectTrigger dir="rtl"><SelectValue placeholder="اختر البلدية" /></SelectTrigger><SelectContent>{municipalities.map((m) => <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>)}</SelectContent></Select></div><div className="flex gap-2"><Button onClick={handleCreate} disabled={submitting}>حفظ</Button><Button variant="outline" onClick={() => setShowForm(false)}>إلغاء</Button></div></CardContent></Card>}
-      <Card><CardContent className="pt-4">{mayors.length === 0 ? <p className="text-sm text-muted-foreground">لا توجد حسابات رؤساء بلديات.</p> : <Table><TableHeader><TableRow><TableHead>الاسم</TableHead><TableHead>اسم المستخدم</TableHead><TableHead>البلدية</TableHead><TableHead>الحالة</TableHead><TableHead>إجراءات</TableHead></TableRow></TableHeader><TableBody>{mayors.map((m) => <TableRow key={m.id}><TableCell>{m.fullName}</TableCell><TableCell dir="ltr">{m.username}</TableCell><TableCell>{municipalities.find((x) => x.id === m.municipalityId)?.name || '—'}</TableCell><TableCell><Badge variant={m.isActive ? 'default' : 'secondary'}>{m.isActive ? 'مفعّل' : 'معطّل'}</Badge></TableCell><TableCell><div className="flex gap-2"><Switch checked={m.isActive} onCheckedChange={() => toggleActive(m)} /><Button size="sm" variant="destructive" onClick={() => handleDelete(m)}>حذف</Button></div></TableCell></TableRow>)}</TableBody></Table>}</CardContent></Card>
+      <Card><CardContent className="pt-4">{mayors.length === 0 ? <EmptyState title="لا يوجد رؤساء بلديات بعد" description="أنشئ أول حساب رئيس بلدية لبدء إدارة الأحياء." actionLabel="إنشاء رئيس بلدية" onAction={() => setShowForm(true)} /> : <Table><TableHeader><TableRow><TableHead>الاسم الكامل</TableHead><TableHead>اسم المستخدم</TableHead><TableHead>البلدية</TableHead><TableHead>الحالة</TableHead><TableHead>تاريخ الإنشاء</TableHead><TableHead>إجراءات</TableHead></TableRow></TableHeader><TableBody>{mayors.map((m) => <TableRow key={m.id}><TableCell>{m.fullName}</TableCell><TableCell dir="ltr">{m.username}</TableCell><TableCell>{municipalities.find((x) => x.id === m.municipalityId)?.name || '—'}</TableCell><TableCell><Badge variant={m.isActive ? 'default' : 'secondary'}>{m.isActive ? 'مفعّل' : 'معطّل'}</Badge></TableCell><TableCell>{m.createdAt ? new Date(m.createdAt).toLocaleDateString('ar-EG') : '—'}</TableCell><TableCell><div className="flex gap-2"><Switch checked={m.isActive} onCheckedChange={() => toggleActive(m)} /><Button size="sm" variant="outline" onClick={() => { setEditing(m); setEditFullName(m.fullName); setEditUsername(m.username); setEditMunicipalityId(m.municipalityId || '') }}>تعديل</Button><Button size="sm" variant="destructive" onClick={() => setDeleteTarget(m)}>حذف</Button></div></TableCell></TableRow>)}</TableBody></Table>}</CardContent></Card>
+      {editing && <Dialog open={!!editing} onOpenChange={() => setEditing(null)}><DialogContent className="max-w-md"><DialogHeader><DialogTitle>تعديل رئيس البلدية</DialogTitle></DialogHeader><div className="space-y-2"><Input value={editFullName} onChange={(e) => setEditFullName(e.target.value)} dir="rtl" /><Input value={editUsername} onChange={(e) => setEditUsername(e.target.value)} dir="ltr" /><Select value={editMunicipalityId} onValueChange={setEditMunicipalityId}><SelectTrigger><SelectValue placeholder="اختر البلدية" /></SelectTrigger><SelectContent>{municipalities.map((m) => <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>)}</SelectContent></Select></div><DialogFooter><Button variant="outline" onClick={() => setEditing(null)}>إلغاء</Button><Button onClick={handleSaveEdit}>حفظ</Button></DialogFooter></DialogContent></Dialog>}
+      {deleteTarget && <Dialog open={!!deleteTarget} onOpenChange={() => setDeleteTarget(null)}><DialogContent className="max-w-md"><DialogHeader><DialogTitle>تأكيد الحذف</DialogTitle></DialogHeader><p className="text-sm text-muted-foreground">سيتم حذف الحساب إن كان آمناً، أو تعطيله تلقائياً إذا كان مرتبطاً بسجل عمليات.</p><DialogFooter><Button variant="outline" onClick={() => setDeleteTarget(null)}>إلغاء</Button><Button variant="destructive" onClick={removeMayor}>تأكيد</Button></DialogFooter></DialogContent></Dialog>}
     </div>
   )
 }
@@ -1156,6 +1268,7 @@ function MayorsView({ user }: { user: User }) {
 
 function MukhtarsView({ user }: { user: User }) {
   const [districts, setDistricts] = useState<{ id: string; name: string }[]>([])
+  const [municipalities, setMunicipalities] = useState<{ id: string; name: string }[]>([])
   const [mukhtars, setMukhtars] = useState<User[]>([])
   const [showForm, setShowForm] = useState(false)
   const [fullName, setFullName] = useState('')
@@ -1164,9 +1277,15 @@ function MukhtarsView({ user }: { user: User }) {
   const [districtId, setDistrictId] = useState('')
   const [createdCredentials, setCreatedCredentials] = useState<{ username: string; password: string } | null>(null)
   const [submitting, setSubmitting] = useState(false)
+  const [editing, setEditing] = useState<User | null>(null)
+  const [editFullName, setEditFullName] = useState('')
+  const [editUsername, setEditUsername] = useState('')
+  const [editDistrictId, setEditDistrictId] = useState('')
+  const [deleteTarget, setDeleteTarget] = useState<User | null>(null)
 
   const load = useCallback(() => {
     api.getAdminDistricts().then((list) => setDistricts(list.map((d) => ({ id: d.id, name: d.name })))).catch(() => toast.error('تعذّر تحميل الأحياء'))
+    api.getMunicipalities().then((list) => setMunicipalities(list.map((m) => ({ id: m.id, name: m.name })))).catch(() => {})
     api.getMukhtars().then((list) => setMukhtars(list.map(toUser))).catch(() => toast.error('تعذّر تحميل المختارين'))
   }, [])
 
@@ -1177,21 +1296,45 @@ function MukhtarsView({ user }: { user: User }) {
     setSubmitting(true)
     try {
       const savedUsername = username.trim(); const savedPassword = password
-      await api.createMukhtar({ full_name: fullName.trim(), username: savedUsername, password: savedPassword, district_id: districtId })
+      const created = await api.createMukhtar({ full_name: fullName.trim(), username: savedUsername, password: savedPassword, district_id: districtId })
       setCreatedCredentials({ username: savedUsername, password: savedPassword })
+      setMukhtars((prev) => [toUser(created), ...prev])
       setFullName(''); setUsername(''); setPassword(''); setDistrictId(''); setShowForm(false)
-      load(); toast.success('تم إنشاء حساب المختار')
+      toast.success('تم إنشاء حساب المختار')
     } catch (e: any) { toast.error(e.message || 'فشل إنشاء الحساب') } finally { setSubmitting(false) }
   }
 
   const toggleActive = async (mukhtar: User) => {
-    try { await api.updateAdminUser(mukhtar.id, { is_active: !mukhtar.isActive }); load(); toast.success(!mukhtar.isActive ? 'تم التفعيل' : 'تم التعطيل') }
+    try {
+      const updated = await api.updateAdminUser(mukhtar.id, { is_active: !mukhtar.isActive })
+      setMukhtars((prev) => prev.map((item) => item.id === mukhtar.id ? toUser(updated) : item))
+      toast.success(!mukhtar.isActive ? 'تم التفعيل' : 'تم التعطيل')
+    }
     catch (e: any) { toast.error(e.message || 'فشل التحديث') }
   }
 
-  const handleDelete = async (mukhtar: User) => {
-    if (!confirm(`حذف حساب ${mukhtar.fullName}؟`)) return
-    try { await api.deleteAdminUser(mukhtar.id); load(); toast.success('تم حذف/تعطيل الحساب') } catch (e: any) { toast.error(e.message || 'تعذّر حذف الحساب') }
+  const handleSaveEdit = async () => {
+    if (!editing || !editFullName.trim() || !editUsername.trim() || !editDistrictId) return
+    try {
+      const updated = await api.updateAdminUser(editing.id, {
+        full_name: editFullName.trim(),
+        username: editUsername.trim(),
+        district_id: editDistrictId,
+      })
+      setMukhtars((prev) => prev.map((item) => item.id === editing.id ? toUser(updated) : item))
+      setEditing(null)
+      toast.success('تم تحديث بيانات المختار')
+    } catch (e: any) { toast.error(e.message || 'فشل التحديث') }
+  }
+
+  const removeMukhtar = async () => {
+    if (!deleteTarget) return
+    try {
+      await api.deleteAdminUser(deleteTarget.id)
+      setMukhtars((prev) => prev.filter((item) => item.id !== deleteTarget.id))
+      setDeleteTarget(null)
+      toast.success('تم حذف/تعطيل الحساب')
+    } catch (e: any) { toast.error(e.message || 'تعذّر حذف الحساب') }
   }
 
   const copyCredentials = (text: string) => navigator.clipboard.writeText(text).then(() => toast.success('تم النسخ')).catch(() => toast.error('تعذّر النسخ'))
@@ -1201,7 +1344,9 @@ function MukhtarsView({ user }: { user: User }) {
       <div className="flex items-center justify-between"><h2 className="text-xl font-semibold">مخاتير الأحياء</h2><Button onClick={() => setShowForm(true)} size="sm"><Plus className="ml-2" size={16} />إنشاء حساب مختار</Button></div>
       {createdCredentials && <Card className="border-green-500/40 bg-green-50 dark:bg-green-950/20"><CardContent className="pt-4"><p className="font-semibold text-green-700 dark:text-green-400 mb-2">تم إنشاء الحساب بنجاح – احفظ بيانات الدخول الآن</p><div className="space-y-2 text-sm"><div className="flex items-center gap-2"><span className="text-muted-foreground w-28">اسم المستخدم:</span><span className="font-mono font-bold">{createdCredentials.username}</span><Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={() => copyCredentials(createdCredentials.username)}>نسخ</Button></div><div className="flex items-center gap-2"><span className="text-muted-foreground w-28">كلمة المرور:</span><span className="font-mono font-bold">{createdCredentials.password}</span><Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={() => copyCredentials(createdCredentials.password)}>نسخ</Button></div></div></CardContent></Card>}
       {showForm && <Card className="border-primary/30"><CardHeader><CardTitle className="text-base">بيانات المختار الجديد</CardTitle></CardHeader><CardContent className="space-y-3"><div className="space-y-1"><Label>الاسم الكامل</Label><Input value={fullName} onChange={(e) => setFullName(e.target.value)} dir="rtl" /></div><div className="space-y-1"><Label>اسم المستخدم</Label><Input value={username} onChange={(e) => setUsername(e.target.value)} dir="ltr" /></div><div className="space-y-1"><Label>كلمة المرور</Label><Input value={password} onChange={(e) => setPassword(e.target.value)} type="text" dir="ltr" /></div><div className="space-y-1"><Label>الحي</Label><Select value={districtId} onValueChange={setDistrictId}><SelectTrigger dir="rtl"><SelectValue placeholder="اختر الحي" /></SelectTrigger><SelectContent>{districts.map((d) => <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>)}</SelectContent></Select></div><div className="flex gap-2"><Button onClick={handleCreate} disabled={submitting}>حفظ</Button><Button variant="outline" onClick={() => setShowForm(false)}>إلغاء</Button></div></CardContent></Card>}
-      <Card><CardContent className="pt-4">{mukhtars.length === 0 ? <p className="text-sm text-muted-foreground">لا توجد حسابات مخاتير.</p> : <Table><TableHeader><TableRow><TableHead>الاسم</TableHead><TableHead>اسم المستخدم</TableHead><TableHead>الحي</TableHead><TableHead>الحالة</TableHead><TableHead>إجراءات</TableHead></TableRow></TableHeader><TableBody>{mukhtars.map((m) => <TableRow key={m.id}><TableCell>{m.fullName}</TableCell><TableCell dir="ltr">{m.username}</TableCell><TableCell>{districts.find((d) => d.id === m.districtId)?.name || '—'}</TableCell><TableCell><Badge variant={m.isActive ? 'default' : 'secondary'}>{m.isActive ? 'مفعّل' : 'معطّل'}</Badge></TableCell><TableCell><div className="flex gap-2"><Switch checked={m.isActive} onCheckedChange={() => toggleActive(m)} /><Button size="sm" variant="destructive" onClick={() => handleDelete(m)}>حذف</Button></div></TableCell></TableRow>)}</TableBody></Table>}</CardContent></Card>
+      <Card><CardContent className="pt-4">{mukhtars.length === 0 ? <EmptyState title="لا يوجد مخاتير بعد" description="أنشئ أول حساب مختار لتمكين إدارة الطلبات على مستوى الأحياء." actionLabel="إنشاء مختار" onAction={() => setShowForm(true)} /> : <Table><TableHeader><TableRow><TableHead>الاسم</TableHead><TableHead>اسم المستخدم</TableHead><TableHead>الحي</TableHead><TableHead>البلدية</TableHead><TableHead>الحالة</TableHead><TableHead>تاريخ الإنشاء</TableHead><TableHead>إجراءات</TableHead></TableRow></TableHeader><TableBody>{mukhtars.map((m) => <TableRow key={m.id}><TableCell>{m.fullName}</TableCell><TableCell dir="ltr">{m.username}</TableCell><TableCell>{districts.find((d) => d.id === m.districtId)?.name || '—'}</TableCell><TableCell>{municipalities.find((mu) => mu.id === m.municipalityId)?.name || '—'}</TableCell><TableCell><Badge variant={m.isActive ? 'default' : 'secondary'}>{m.isActive ? 'مفعّل' : 'معطّل'}</Badge></TableCell><TableCell>{m.createdAt ? new Date(m.createdAt).toLocaleDateString('ar-EG') : '—'}</TableCell><TableCell><div className="flex gap-2"><Switch checked={m.isActive} onCheckedChange={() => toggleActive(m)} /><Button size="sm" variant="outline" onClick={() => { setEditing(m); setEditFullName(m.fullName); setEditUsername(m.username); setEditDistrictId(m.districtId || '') }}>تعديل</Button><Button size="sm" variant="destructive" onClick={() => setDeleteTarget(m)}>حذف</Button></div></TableCell></TableRow>)}</TableBody></Table>}</CardContent></Card>
+      {editing && <Dialog open={!!editing} onOpenChange={() => setEditing(null)}><DialogContent className="max-w-md"><DialogHeader><DialogTitle>تعديل المختار</DialogTitle></DialogHeader><div className="space-y-2"><Input value={editFullName} onChange={(e) => setEditFullName(e.target.value)} dir="rtl" /><Input value={editUsername} onChange={(e) => setEditUsername(e.target.value)} dir="ltr" /><Select value={editDistrictId} onValueChange={setEditDistrictId}><SelectTrigger><SelectValue placeholder="اختر الحي" /></SelectTrigger><SelectContent>{districts.map((d) => <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>)}</SelectContent></Select></div><DialogFooter><Button variant="outline" onClick={() => setEditing(null)}>إلغاء</Button><Button onClick={handleSaveEdit}>حفظ</Button></DialogFooter></DialogContent></Dialog>}
+      {deleteTarget && <Dialog open={!!deleteTarget} onOpenChange={() => setDeleteTarget(null)}><DialogContent className="max-w-md"><DialogHeader><DialogTitle>تأكيد الحذف</DialogTitle></DialogHeader><p className="text-sm text-muted-foreground">سيتم حذف الحساب إن كان آمناً، أو تعطيله تلقائياً إذا كان مرتبطاً بسجل عمليات.</p><DialogFooter><Button variant="outline" onClick={() => setDeleteTarget(null)}>إلغاء</Button><Button variant="destructive" onClick={removeMukhtar}>تأكيد</Button></DialogFooter></DialogContent></Dialog>}
     </div>
   )
 }
@@ -1209,39 +1354,76 @@ function MukhtarsView({ user }: { user: User }) {
 
 function TeamsView({ user }: { user: User }) {
   const [teams, setTeams] = useState<MunicipalTeam[]>([])
+  const [requests, setRequests] = useState<ServiceRequest[]>([])
+  const [municipalityName, setMunicipalityName] = useState('')
   const [showForm, setShowForm] = useState(false)
   const [teamName, setTeamName] = useState('')
   const [leaderName, setLeaderName] = useState('')
   const [leaderPhone, setLeaderPhone] = useState('')
   const [notes, setNotes] = useState('')
+  const [editing, setEditing] = useState<MunicipalTeam | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<MunicipalTeam | null>(null)
 
-  const load = useCallback(() => {
-    api.getTeams().then((list) => setTeams(list.map(toMunicipalTeam))).catch(() => toast.error('تعذّر تحميل الفرق'))
+  const load = useCallback(async () => {
+    try {
+      const [teamsList, reqList] = await Promise.all([api.getTeams(), api.getRequests({ page: 1, page_size: 500 })])
+      setTeams(teamsList.map(toMunicipalTeam))
+      setRequests(reqList.items.map(toServiceRequest))
+      if (user.municipalityId) {
+        const municipalities = await api.getMunicipalities()
+        const found = municipalities.find((m) => m.id === user.municipalityId)
+        setMunicipalityName(found?.name || '—')
+      }
+    } catch {
+      toast.error('تعذّر تحميل الفرق')
+    }
   }, [])
   useEffect(() => { load() }, [load])
 
   const createTeam = async () => {
     if (!teamName.trim() || !leaderName.trim() || !leaderPhone.trim()) return toast.error('أكمل الحقول المطلوبة')
     try {
-      await api.createTeam({ team_name: teamName.trim(), leader_name: leaderName.trim(), leader_phone: leaderPhone.trim(), notes: notes.trim() || undefined })
+      const created = await api.createTeam({ team_name: teamName.trim(), leader_name: leaderName.trim(), leader_phone: leaderPhone.trim(), notes: notes.trim() || undefined })
+      setTeams((prev) => [toMunicipalTeam(created), ...prev])
       setTeamName(''); setLeaderName(''); setLeaderPhone(''); setNotes(''); setShowForm(false)
-      load(); toast.success('تم إنشاء الفريق')
+      toast.success('تم إنشاء الفريق')
     } catch (e: any) { toast.error(e.message || 'فشل الإنشاء') }
   }
 
   const toggleActive = async (team: MunicipalTeam) => {
-    try { await api.updateTeam(team.id, { is_active: !team.isActive }); load(); toast.success(!team.isActive ? 'تم التفعيل' : 'تم التعطيل') }
+    try {
+      const updated = await api.updateTeam(team.id, { is_active: !team.isActive })
+      setTeams((prev) => prev.map((item) => item.id === team.id ? toMunicipalTeam(updated) : item))
+      toast.success(!team.isActive ? 'تم التفعيل' : 'تم التعطيل')
+    }
     catch (e: any) { toast.error(e.message || 'فشل التحديث') }
   }
-  const deleteTeam = async (team: MunicipalTeam) => {
-    if (!confirm(`حذف الفريق "${team.teamName}"؟`)) return
-    try { await api.deleteTeam(team.id); load(); toast.success('تم حذف الفريق') } catch (e: any) { toast.error(e.message || 'تعذّر حذف الفريق') }
+  const deleteTeam = async () => {
+    if (!deleteTarget) return
+    try {
+      await api.deleteTeam(deleteTarget.id)
+      setTeams((prev) => prev.filter((item) => item.id !== deleteTarget.id))
+      setDeleteTarget(null)
+      toast.success('تم حذف الفريق')
+    } catch (e: any) { toast.error(e.message || 'تعذّر حذف الفريق') }
+  }
+
+  const updateTeamDetails = async () => {
+    if (!editing || !teamName.trim() || !leaderName.trim() || !leaderPhone.trim()) return
+    try {
+      const updated = await api.updateTeam(editing.id, { team_name: teamName.trim(), leader_name: leaderName.trim(), leader_phone: leaderPhone.trim(), notes: notes.trim() || undefined })
+      setTeams((prev) => prev.map((item) => item.id === editing.id ? toMunicipalTeam(updated) : item))
+      setEditing(null)
+      setTeamName(''); setLeaderName(''); setLeaderPhone(''); setNotes('')
+      toast.success('تم تعديل الفريق')
+    } catch (e: any) { toast.error(e.message || 'فشل تعديل الفريق') }
   }
 
   return <div className="space-y-4">
     <div className="flex items-center justify-between"><h2 className="text-xl font-semibold">فرق البلدية</h2><Button onClick={() => setShowForm(true)} size="sm"><Plus className="ml-2" size={16} />إضافة فريق</Button></div>
-    {showForm && <Card><CardContent className="pt-4 space-y-2"><Input value={teamName} onChange={(e) => setTeamName(e.target.value)} placeholder="اسم الفريق" dir="rtl" /><Input value={leaderName} onChange={(e) => setLeaderName(e.target.value)} placeholder="اسم القائد" dir="rtl" /><Input value={leaderPhone} onChange={(e) => setLeaderPhone(e.target.value)} placeholder="رقم هاتف القائد" dir="ltr" /><Textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="ملاحظات" dir="rtl" /><div className="flex gap-2"><Button onClick={createTeam}>حفظ</Button><Button variant="outline" onClick={() => setShowForm(false)}>إلغاء</Button></div></CardContent></Card>}
-    <Card><CardContent className="pt-4">{teams.length === 0 ? <p className="text-sm text-muted-foreground">لا توجد فرق.</p> : <Table><TableHeader><TableRow><TableHead>الفريق</TableHead><TableHead>القائد</TableHead><TableHead>الهاتف</TableHead><TableHead>الحالة</TableHead><TableHead>إجراءات</TableHead></TableRow></TableHeader><TableBody>{teams.map((t) => <TableRow key={t.id}><TableCell>{t.teamName}</TableCell><TableCell>{t.leaderName}</TableCell><TableCell dir="ltr">{t.leaderPhone}</TableCell><TableCell><Badge variant={t.isActive ? 'default' : 'secondary'}>{t.isActive ? 'مفعّل' : 'معطّل'}</Badge></TableCell><TableCell><div className="flex gap-2"><Switch checked={t.isActive} onCheckedChange={() => toggleActive(t)} /><Button variant="destructive" size="sm" onClick={() => deleteTeam(t)}>حذف</Button></div></TableCell></TableRow>)}</TableBody></Table>}</CardContent></Card>
+    {(showForm || editing) && <Card><CardContent className="pt-4 space-y-2"><Input value={teamName} onChange={(e) => setTeamName(e.target.value)} placeholder="اسم الفريق" dir="rtl" /><Input value={leaderName} onChange={(e) => setLeaderName(e.target.value)} placeholder="اسم القائد" dir="rtl" /><Input value={leaderPhone} onChange={(e) => setLeaderPhone(e.target.value)} placeholder="رقم هاتف القائد" dir="ltr" /><Textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="ملاحظات" dir="rtl" /><div className="flex gap-2"><Button onClick={editing ? updateTeamDetails : createTeam}>حفظ</Button><Button variant="outline" onClick={() => { setShowForm(false); setEditing(null); setTeamName(''); setLeaderName(''); setLeaderPhone(''); setNotes('') }}>إلغاء</Button></div></CardContent></Card>}
+    <Card><CardContent className="pt-4">{teams.length === 0 ? <EmptyState title="لا توجد فرق عمل بعد" description="أنشئ أول فريق ميداني لتوزيع الشكاوى ومتابعة التنفيذ." actionLabel="إنشاء أول فريق" onAction={() => setShowForm(true)} /> : <Table><TableHeader><TableRow><TableHead>الفريق</TableHead><TableHead>القائد</TableHead><TableHead>الهاتف</TableHead><TableHead>البلدية</TableHead><TableHead>الحالة</TableHead><TableHead>الشكاوى المعيّنة</TableHead><TableHead>إجراءات</TableHead></TableRow></TableHeader><TableBody>{teams.map((t) => <TableRow key={t.id}><TableCell>{t.teamName}</TableCell><TableCell>{t.leaderName}</TableCell><TableCell dir="ltr">{t.leaderPhone}</TableCell><TableCell>{municipalityName || '—'}</TableCell><TableCell><Badge variant={t.isActive ? 'default' : 'secondary'}>{t.isActive ? 'مفعّل' : 'معطّل'}</Badge></TableCell><TableCell>{requests.filter((r) => r.responsibleTeamId === t.id).length}</TableCell><TableCell><div className="flex gap-2"><Switch checked={t.isActive} onCheckedChange={() => toggleActive(t)} /><Button size="sm" variant="outline" onClick={() => { setEditing(t); setShowForm(false); setTeamName(t.teamName); setLeaderName(t.leaderName); setLeaderPhone(t.leaderPhone); setNotes(t.notes || '') }}>تعديل</Button><Button variant="destructive" size="sm" onClick={() => setDeleteTarget(t)}>حذف</Button></div></TableCell></TableRow>)}</TableBody></Table>}</CardContent></Card>
+    {deleteTarget && <Dialog open={!!deleteTarget} onOpenChange={() => setDeleteTarget(null)}><DialogContent className="max-w-md"><DialogHeader><DialogTitle>تأكيد حذف الفريق</DialogTitle></DialogHeader><p className="text-sm text-muted-foreground">سيتم حذف الفريق إذا لم يكن مرتبطاً بأي شكوى. خلاف ذلك استخدم التعطيل.</p><DialogFooter><Button variant="outline" onClick={() => setDeleteTarget(null)}>إلغاء</Button><Button variant="destructive" onClick={deleteTeam}>تأكيد الحذف</Button></DialogFooter></DialogContent></Dialog>}
   </div>
 }
 
