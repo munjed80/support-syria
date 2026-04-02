@@ -24,7 +24,7 @@ function AppContent() {
   }
 
   return (
-    <div className="min-h-screen bg-background" dir="rtl">
+    <div className="flex flex-col min-h-screen bg-background" dir="rtl">
       <header className="border-b bg-card shadow-sm">
         <div className="container mx-auto px-4 py-6">
           <div className="flex items-center justify-between">
@@ -34,7 +34,7 @@ function AppContent() {
               </div>
               <div>
                 <h1 className="text-2xl font-bold">نظام الطلبات البلدية</h1>
-                <p className="text-sm text-muted-foreground">خدمات بلدية دمشق</p>
+                <p className="text-sm text-muted-foreground">منصة إدارة الشكاوى والطلبات</p>
               </div>
             </div>
             <Button
@@ -47,11 +47,24 @@ function AppContent() {
         </div>
       </header>
 
-      <main className="container mx-auto px-4 py-8">
+      <main className="flex-1 container mx-auto px-4 py-10">
         {activeTab === 'login' ? (
-          <LoginForm onLogin={login} />
+          <div className="max-w-md mx-auto">
+            <LoginForm onLogin={login} />
+            <div className="mt-4 text-center">
+              <Button variant="ghost" size="sm" onClick={() => setActiveTab('track')}>
+                ← العودة لتتبع الطلبات
+              </Button>
+            </div>
+          </div>
         ) : (
-          <div className="max-w-3xl mx-auto">
+          <div className="max-w-2xl mx-auto space-y-8">
+            <div className="text-center space-y-3 pt-4">
+              <h2 className="text-xl font-semibold text-foreground">تتبع طلبك أو شكواك</h2>
+              <p className="text-muted-foreground text-sm">
+                أدخل رمز التتبع الخاص بك لمعرفة حالة طلبك
+              </p>
+            </div>
             <TrackRequest
               initialCode={
                 window.location.hash.startsWith('#track-')
@@ -63,9 +76,9 @@ function AppContent() {
         )}
       </main>
 
-      <footer className="border-t mt-16 py-8 bg-muted">
+      <footer className="border-t py-6 bg-muted mt-auto">
         <div className="container mx-auto px-4 text-center text-sm text-muted-foreground">
-          <p>© 2024 نظام الطلبات البلدية - دمشق. جميع الحقوق محفوظة.</p>
+          <p>© {new Date().getFullYear()} نظام الطلبات البلدية. جميع الحقوق محفوظة.</p>
         </div>
       </footer>
 

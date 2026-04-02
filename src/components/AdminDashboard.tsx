@@ -612,7 +612,8 @@ function RequestsView({ user }: { user: User }) {
   const [municipalities, setMunicipalities] = useState<Municipality[]>([])
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
-  const PAGE_SIZE = 20
+  const PAGE_SIZE_OPTIONS = [10, 25, 50, 100]
+  const [pageSize, setPageSize] = useState(10)
 
   // Dashboard stats (server-side)
   const [dashboard, setDashboard] = useState<DashboardData | null>(null)
@@ -663,7 +664,7 @@ function RequestsView({ user }: { user: User }) {
   const fetchRequests = useCallback(() => {
     const filters: Record<string, any> = {
       page,
-      page_size: PAGE_SIZE,
+      page_size: pageSize,
       sort_by: sortBy,
       sort_dir: sortDir,
     }
@@ -687,7 +688,7 @@ function RequestsView({ user }: { user: User }) {
         setTotal(result.total)
       })
       .catch(() => {})
-  }, [page, statusFilter, categoryFilter, priorityFilter, responsibleTeamFilter,
+  }, [page, pageSize, statusFilter, categoryFilter, priorityFilter, responsibleTeamFilter,
       complaintNumberSearch, districtFilter, municipalityFilter,
       overdueFilter, slaBreachedFilter, dateFrom, dateTo, search, sortBy, sortDir, archivedOnly])
 
@@ -728,7 +729,7 @@ function RequestsView({ user }: { user: User }) {
     responsibleTeamFilter.length > 0 || complaintNumberSearch.trim() ||
     districtFilter !== 'all' || municipalityFilter !== 'all' || search.trim()
 
-  const totalPages = Math.ceil(total / PAGE_SIZE)
+  const totalPages = Math.ceil(total / pageSize)
 
   return (
     <div className="space-y-6">
@@ -1169,8 +1170,25 @@ function RequestsView({ user }: { user: User }) {
           </div>
 
           {/* Pagination */}
-          {totalPages > 1 && (
-            <div className="flex items-center justify-between mt-4">
+          <div className="flex items-center justify-between mt-4 flex-wrap gap-2">
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-muted-foreground">عرض:</span>
+              <Select value={String(pageSize)} onValueChange={(v) => { setPageSize(Number(v)); setPage(1) }}>
+                <SelectTrigger className="w-[80px] h-8">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {PAGE_SIZE_OPTIONS.map((n) => (
+                    <SelectItem key={n} value={String(n)}>{n}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <span className="text-sm text-muted-foreground">لكل صفحة</span>
+            </div>
+            <span className="text-sm text-muted-foreground">
+              صفحة {page} من {totalPages || 1} ({total} طلب)
+            </span>
+            <div className="flex items-center gap-2">
               <Button
                 variant="outline"
                 size="sm"
@@ -1179,9 +1197,6 @@ function RequestsView({ user }: { user: User }) {
               >
                 السابق
               </Button>
-              <span className="text-sm text-muted-foreground">
-                صفحة {page} من {totalPages} ({total} طلب)
-              </span>
               <Button
                 variant="outline"
                 size="sm"
@@ -1191,7 +1206,7 @@ function RequestsView({ user }: { user: User }) {
                 التالي
               </Button>
             </div>
-          )}
+          </div>
         </CardContent>
       </Card>
 
