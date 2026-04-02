@@ -193,39 +193,30 @@ def _extract_name_code(name: str, length: int = 3) -> str:
 
 
 def _generate_complaint_number(db: Session, district: District) -> str:
-    """Generate a unique complaint number: MUN_CODE-DIST_CODE-YEAR-SEQ."""
-    from datetime import date
+    """Generate a unique numeric-only complaint number (zero-padded 6-digit sequence)."""
+    from sqlalchemy import func, cast, Integer
 
-    mun_name = district.municipality.name if district.municipality else "MUN"
-    dist_name = district.name
-
-    mun_code = _extract_name_code(mun_name, 3)
-    dist_code = _extract_name_code(dist_name, 3)
-    year = date.today().year
-
-    # Count existing complaints for this district this year
-    prefix = f"{mun_code}-{dist_code}-{year}-"
-    existing = (
-        db.query(ServiceRequest)
-        .filter(ServiceRequest.complaint_number.like(f"{prefix}%"))
-        .count()
+    # Find the current max numeric complaint number (PostgreSQL regex operator)
+    max_num = (
+        db.query(func.max(cast(ServiceRequest.complaint_number, Integer)))
+        .filter(ServiceRequest.complaint_number.op("~")(r"^\d+$"))
+        .scalar()
     )
-    seq = existing + 1
+    seq = (max_num or 0) + 1
 
     for attempt in range(100):
-        candidate = f"{prefix}{(seq + attempt):06d}"
+        candidate = f"{(seq + attempt):06d}"
         if not db.query(ServiceRequest).filter(
             ServiceRequest.complaint_number == candidate
         ).first():
             return candidate
 
-    # Ultimate fallback: append random suffix (should not happen in normal operation)
+    # Ultimate fallback (should not happen in normal operation)
     import logging
-    import secrets
     logging.getLogger(__name__).warning(
-        "Complaint number generation required random fallback for prefix=%s seq=%d", prefix, seq
+        "Complaint number generation required fallback at seq=%d", seq
     )
-    return f"{prefix}{seq:06d}-{secrets.token_hex(3).upper()}"
+    return f"{seq + 100:06d}"
 
 
 # ─── Governorates ─────────────────────────────────────────────────────────────

@@ -23,71 +23,34 @@ IS_PRODUCTION = os.getenv("ENVIRONMENT", "development").lower() == "production"
 
 
 def _ensure_structural_data(db):
-    """Create governorate, municipality, and districts if they don't exist.
+    """Create governorate if it doesn't exist.
 
-    Returns (governorate, municipality, districts_list).
+    Municipality and districts are NOT seeded – the governor creates them manually.
+    Returns (governorate, None, []).
     """
     gov = db.query(Governorate).first()
     if gov is not None:
-        print("ℹ️  Structural data already exists. Reusing.")
-        mun = db.query(Municipality).filter_by(governorate_id=gov.id).first()
-        districts = (
-            db.query(District)
-            .filter_by(municipality_id=mun.id)
-            .order_by(District.created_at)
-            .all()
-        )
-        return gov, mun, districts
+        print("ℹ️  Governorate already exists. Reusing.")
+        return gov, None, []
 
-    # Governorate
+    # Governorate only
     gov = Governorate(name="محافظة دمشق", is_active=True)
     db.add(gov)
     db.flush()
 
-    # Municipality
-    mun = Municipality(name="بلدية دمشق", governorate_id=gov.id, is_active=True)
-    db.add(mun)
-    db.flush()
-
-    # Districts (16)
-    district_names = [
-        "دمر",
-        "المزة",
-        "كفرسوسة",
-        "الميدان",
-        "القدم",
-        "اليرموك",
-        "الشاغور",
-        "جوبر",
-        "القابون",
-        "برزة",
-        "ركن الدين",
-        "الصالحية",
-        "ساروجة",
-        "المهاجرين",
-        "القنوات",
-        "دمشق القديمة",
-    ]
-    districts = []
-    for name in district_names:
-        d = District(municipality_id=mun.id, name=name, is_active=True)
-        db.add(d)
-        districts.append(d)
-    db.flush()
-
-    print("✅ Structural data created (governorate, municipality, 16 districts).")
-    return gov, mun, districts
+    print("✅ Governorate created. Municipalities and districts should be added by the governor.")
+    return gov, None, []
 
 
 def _ensure_initial_users(db, gov, mun, districts):
     """Create initial admin/user accounts that are missing.
 
+    Only the governor account is guaranteed to be created.
+    Mayor and mukhtar accounts require a municipality and districts to exist
+    (created by the governor through the UI).
+
     Returns the number of newly created users.
     """
-    # Resolve the المزة district for mukhtar_mezzeh.
-    # districts list order matches creation order (same as district_names above).
-    mezzeh = districts[1] if len(districts) > 1 else districts[0]
-
     initial_users = [
         {
             "username": "gov_damascus",
@@ -98,7 +61,12 @@ def _ensure_initial_users(db, gov, mun, districts):
             "municipality_id": None,
             "district_id": None,
         },
-        {
+    ]
+
+    # Only seed mayor/mukhtar accounts if a municipality and districts exist
+    if mun and len(districts) >= 2:
+        mezzeh = districts[1]  # المزة is the second seeded district
+        initial_users.append({
             "username": "mayor_damascus",
             "password": "password123",
             "role": "mayor",
@@ -106,8 +74,8 @@ def _ensure_initial_users(db, gov, mun, districts):
             "governorate_id": None,
             "municipality_id": mun.id,
             "district_id": None,
-        },
-        {
+        })
+        initial_users.append({
             "username": "mukhtar_mezzeh",
             "password": "password123",
             "role": "mukhtar",
@@ -115,31 +83,30 @@ def _ensure_initial_users(db, gov, mun, districts):
             "governorate_id": None,
             "municipality_id": mun.id,
             "district_id": mezzeh.id,
-        },
-    ]
+        })
 
-    if not IS_PRODUCTION:
-        # Development-only accounts
-        initial_users += [
-            {
-                "username": "mukhtar_damar",
-                "password": "password123",
-                "role": "mukhtar",
-                "full_name": "مختار حي دمر",
-                "governorate_id": None,
-                "municipality_id": mun.id,
-                "district_id": districts[0].id,
-            },
-            {
-                "username": "mukhtar_midan",
-                "password": "password123",
-                "role": "mukhtar",
-                "full_name": "مختار حي الميدان",
-                "governorate_id": None,
-                "municipality_id": mun.id,
-                "district_id": districts[3].id,
-            },
-        ]
+        if not IS_PRODUCTION and len(districts) >= 4:
+            # Development-only accounts (require at least 4 districts)
+            initial_users += [
+                {
+                    "username": "mukhtar_damar",
+                    "password": "password123",
+                    "role": "mukhtar",
+                    "full_name": "مختار حي دمر",
+                    "governorate_id": None,
+                    "municipality_id": mun.id,
+                    "district_id": districts[0].id,
+                },
+                {
+                    "username": "mukhtar_midan",
+                    "password": "password123",
+                    "role": "mukhtar",
+                    "full_name": "مختار حي الميدان",
+                    "governorate_id": None,
+                    "municipality_id": mun.id,
+                    "district_id": districts[3].id,
+                },
+            ]
 
     existing_usernames = {
         row[0] for row in db.query(User.username).all()
@@ -181,7 +148,7 @@ def seed():
             print(f"✅ Created {created} user(s).")
 
         # Phase 3 – demo service requests (development only, one-time)
-        if not IS_PRODUCTION:
+        if not IS_PRODUCTION and mun and districts:
             _seed_demo_requests(db, mun, districts)
 
         db.commit()
@@ -190,11 +157,14 @@ def seed():
         print()
         print("بيانات الدخول (اسم المستخدم / كلمة المرور):")
         print("  المحافظ      : gov_damascus     / password123")
-        print("  رئيس البلدية : mayor_damascus   / password123")
-        print("  مختار المزة  : mukhtar_mezzeh   / password123")
-        if not IS_PRODUCTION:
-            print("  مختار دمر    : mukhtar_damar    / password123")
-            print("  مختار الميدان: mukhtar_midan    / password123")
+        if mun and districts:
+            print("  رئيس البلدية : mayor_damascus   / password123")
+            print("  مختار المزة  : mukhtar_mezzeh   / password123")
+            if not IS_PRODUCTION:
+                print("  مختار دمر    : mukhtar_damar    / password123")
+                print("  مختار الميدان: mukhtar_midan    / password123")
+        else:
+            print("  (أنشئ البلديات والأحياء من لوحة المحافظ ثم أضف رؤساء البلديات والمخاتير)")
         if IS_PRODUCTION:
             print()
             print("⚠️  يُنصح بتغيير كلمات المرور بعد أول تسجيل دخول.")
