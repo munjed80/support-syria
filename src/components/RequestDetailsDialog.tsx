@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { api, toRequestUpdate, toServiceRequest, toMaterialUsed, toAttachment, MaterialUsedOut } from '@/lib/api'
+import { api, toMunicipalTeam, toRequestUpdate, toServiceRequest, toMaterialUsed, toAttachment } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
@@ -16,13 +16,12 @@ import {
   STATUS_COLORS,
   PRIORITIES,
   PRIORITY_BADGE_COLORS,
-  RESPONSIBLE_TEAMS,
   formatDate,
   formatRelativeTime,
   getValidNextStatuses,
   canTransitionTo,
 } from '@/lib/constants'
-import type { ServiceRequest, RequestUpdate, User, District, RequestStatus, Priority, MaterialUsed, Attachment } from '@/lib/types'
+import type { ServiceRequest, RequestUpdate, User, District, RequestStatus, MaterialUsed, Attachment, MunicipalTeam } from '@/lib/types'
 import { PrintComplaint } from '@/components/PrintComplaint'
 
 interface RequestDetailsDialogProps {
@@ -37,6 +36,7 @@ interface RequestDetailsDialogProps {
 export function RequestDetailsDialog({ request, open, onOpenChange, currentUser, districts, onUpdate }: RequestDetailsDialogProps) {
   const [requestUpdates, setRequestUpdates] = useState<RequestUpdate[]>([])
   const [staffMembers, setStaffMembers] = useState<{ id: string; name: string }[]>([])
+  const [teams, setTeams] = useState<MunicipalTeam[]>([])
   const [liveRequest, setLiveRequest] = useState<ServiceRequest | null>(null)
   const [attachments, setAttachments] = useState<Attachment[]>([])
   const [showPrint, setShowPrint] = useState(false)
@@ -81,6 +81,11 @@ export function RequestDetailsDialog({ request, open, onOpenChange, currentUser,
           .then((list) => setStaffMembers(list.map(u => ({ id: String(u.id), name: u.full_name }))))
           .catch(() => {})
       }
+      if (currentUser.role === 'mayor' || currentUser.role === 'governor') {
+        api.getTeams()
+          .then((list) => setTeams(list.map(toMunicipalTeam)))
+          .catch(() => {})
+      }
     }
     if (!open) {
       // Reset form state when dialog closes
@@ -100,6 +105,7 @@ export function RequestDetailsDialog({ request, open, onOpenChange, currentUser,
       setRequestUpdates([])
       setMaterials([])
       setAttachments([])
+      setTeams([])
       setNewMatName('')
       setNewMatQty('')
       setNewMatNotes('')
@@ -171,6 +177,10 @@ export function RequestDetailsDialog({ request, open, onOpenChange, currentUser,
 
     if (newStatus === 'resolved' && !completionPhotoFile) {
       toast.error('يرجى إضافة صورة بعد الإنجاز')
+      return
+    }
+    if (newStatus === 'resolved' && !internalNote.trim()) {
+      toast.error('يرجى إدخال ملاحظة الإنجاز')
       return
     }
 
@@ -409,7 +419,12 @@ export function RequestDetailsDialog({ request, open, onOpenChange, currentUser,
           {displayRequest.responsibleTeam && (
             <div>
               <h4 className="font-semibold text-sm text-muted-foreground mb-1">الفريق المسؤول</h4>
-              <Badge variant="outline">{RESPONSIBLE_TEAMS[displayRequest.responsibleTeam] ?? displayRequest.responsibleTeam}</Badge>
+              <Badge variant="outline">{displayRequest.responsibleTeamName ?? displayRequest.responsibleTeam}</Badge>
+              {(displayRequest.responsibleTeamLeaderName || displayRequest.responsibleTeamLeaderPhone) && (
+                <p className="text-sm text-muted-foreground mt-2">
+                  {displayRequest.responsibleTeamLeaderName ?? '—'} — {displayRequest.responsibleTeamLeaderPhone ?? '—'}
+                </p>
+              )}
             </div>
           )}
 
@@ -480,14 +495,14 @@ export function RequestDetailsDialog({ request, open, onOpenChange, currentUser,
                       <SelectTrigger className="flex-1">
                         <SelectValue placeholder={
                           displayRequest.responsibleTeam
-                            ? `الفريق الحالي: ${RESPONSIBLE_TEAMS[displayRequest.responsibleTeam] ?? displayRequest.responsibleTeam}`
+                            ? `الفريق الحالي: ${displayRequest.responsibleTeamName ?? displayRequest.responsibleTeam}`
                             : 'اختر الفريق المسؤول'
                         } />
                       </SelectTrigger>
                       <SelectContent>
-                        {Object.entries(RESPONSIBLE_TEAMS).map(([key, label]) => (
-                          <SelectItem key={key} value={key}>
-                            {label}
+                        {teams.filter((t) => t.isActive).map((team) => (
+                          <SelectItem key={team.id} value={team.id}>
+                            {team.teamName} — {team.leaderName}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -606,7 +621,7 @@ export function RequestDetailsDialog({ request, open, onOpenChange, currentUser,
                   )}
 
                   <div className="space-y-2">
-                    <Label>ملاحظة داخلية (اختياري)</Label>
+                    <Label>{newStatus === 'resolved' ? 'ملاحظة الإنجاز *' : 'ملاحظة داخلية (اختياري)'}</Label>
                     <Textarea
                       value={internalNote}
                       onChange={(e) => setInternalNote(e.target.value)}

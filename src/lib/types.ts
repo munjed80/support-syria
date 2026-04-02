@@ -46,6 +46,10 @@ export interface ServiceRequest {
   priority: Priority
   status: RequestStatus
   responsibleTeam?: string
+  responsibleTeamId?: string
+  responsibleTeamName?: string
+  responsibleTeamLeaderName?: string
+  responsibleTeamLeaderPhone?: string
   description: string
   trackingCode: string
   locationLat?: number
@@ -124,4 +128,14 @@ export interface AuditLog {
 export interface CategorySLA {
   category: RequestCategory
   daysToResolve: number
+}
+
+export interface MunicipalTeam {
+  id: string
+  municipalityId: string
+  teamName: string
+  leaderName: string
+  leaderPhone: string
+  notes?: string
+  isActive: boolean
 }

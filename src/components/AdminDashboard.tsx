@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { api, toServiceRequest, toDistrict, toMunicipality, MunicipalityOut, DistrictOut, DashboardData, MukhtarDashboard, MayorDashboard, GovernorDashboard, MonthlyReport } from '@/lib/api'
+import { api, toMunicipalTeam, toServiceRequest, toDistrict, toMunicipality, toUser, MunicipalityOut, DistrictOut, DashboardData, MukhtarDashboard, MayorDashboard, GovernorDashboard, MonthlyReport } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -22,7 +22,7 @@ import { SignOut, ChartBar, Buildings, Warning, ClipboardText, Plus, MagnifyingG
 import { CATEGORIES, STATUSES, STATUS_COLORS, PRIORITIES, PRIORITY_BADGE_COLORS, RESPONSIBLE_TEAMS, formatRelativeTime, isOverdue } from '@/lib/constants'
 import { RequestDetailsDialog } from '@/components/RequestDetailsDialog'
 import { PrintReport } from '@/components/PrintReport'
-import type { ServiceRequest, User, District, Municipality } from '@/lib/types'
+import type { ServiceRequest, User, District, Municipality, MunicipalTeam } from '@/lib/types'
 import { toast } from 'sonner'
 
 interface AdminDashboardProps {
@@ -38,6 +38,10 @@ function MunicipalitiesView({ user }: { user: User }) {
   const [showAdd, setShowAdd] = useState(false)
   const [newName, setNewName] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [editing, setEditing] = useState<District | null>(null)
+  const [editName, setEditName] = useState('')
+  const [editing, setEditing] = useState<District | null>(null)
+  const [editName, setEditName] = useState('')
 
   const load = useCallback(() => {
     setLoading(true)
@@ -199,6 +203,30 @@ function DistrictsView({ user }: { user: User }) {
     }
   }
 
+  const handleSaveEdit = async () => {
+    if (!editing || !editName.trim()) return
+    try {
+      await api.updateDistrict(editing.id, { name: editName.trim() })
+      setEditing(null)
+      setEditName('')
+      load()
+      toast.success('تم تحديث الحي')
+    } catch (e: any) {
+      toast.error(e.message || 'فشل التحديث')
+    }
+  }
+
+  const handleDelete = async (district: District) => {
+    if (!confirm(`حذف الحي "${district.name}"؟`)) return
+    try {
+      await api.deleteDistrict(district.id)
+      load()
+      toast.success('تم حذف الحي')
+    } catch (e: any) {
+      toast.error(e.message || 'تعذّر حذف الحي')
+    }
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -265,6 +293,12 @@ function DistrictsView({ user }: { user: User }) {
                         <Label className="text-sm">
                           {district.isActive ? 'تعطيل' : 'تفعيل'}
                         </Label>
+                        <Button size="sm" variant="outline" onClick={() => { setEditing(district); setEditName(district.name) }}>
+                          تعديل
+                        </Button>
+                        <Button size="sm" variant="destructive" onClick={() => handleDelete(district)}>
+                          حذف
+                        </Button>
                       </div>
                     </TableCell>
                   </TableRow>
@@ -274,6 +308,18 @@ function DistrictsView({ user }: { user: User }) {
           )}
         </CardContent>
       </Card>
+      {editing && (
+        <Dialog open={!!editing} onOpenChange={() => setEditing(null)}>
+          <DialogContent className="max-w-md">
+            <DialogHeader><DialogTitle>تعديل الحي</DialogTitle></DialogHeader>
+            <Input value={editName} onChange={(e) => setEditName(e.target.value)} dir="rtl" />
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setEditing(null)}>إلغاء</Button>
+              <Button onClick={handleSaveEdit}>حفظ</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   )
 }
@@ -1042,6 +1088,7 @@ function RequestsView({ user }: { user: User }) {
 
 function MayorsView({ user }: { user: User }) {
   const [municipalities, setMunicipalities] = useState<{ id: string; name: string }[]>([])
+  const [mayors, setMayors] = useState<User[]>([])
   const [showForm, setShowForm] = useState(false)
   const [fullName, setFullName] = useState('')
   const [username, setUsername] = useState('')
@@ -1050,11 +1097,16 @@ function MayorsView({ user }: { user: User }) {
   const [createdCredentials, setCreatedCredentials] = useState<{ username: string; password: string } | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
-  useEffect(() => {
+  const load = useCallback(() => {
     api.getMunicipalities()
       .then((list) => setMunicipalities(list.map((m) => ({ id: m.id, name: m.name }))))
       .catch(() => toast.error('تعذّر تحميل البلديات'))
+    api.getMayors()
+      .then((list) => setMayors(list.map(toUser)))
+      .catch(() => toast.error('تعذّر تحميل رؤساء البلديات'))
   }, [])
+
+  useEffect(() => { load() }, [load])
 
   const handleCreate = async () => {
     if (!fullName.trim() || !username.trim() || !password.trim() || !municipalityId) {
@@ -1065,110 +1117,36 @@ function MayorsView({ user }: { user: User }) {
     try {
       const savedUsername = username.trim()
       const savedPassword = password
-      await api.createMayor({
-        full_name: fullName.trim(),
-        username: savedUsername,
-        password: savedPassword,
-        municipality_id: municipalityId,
-      })
+      await api.createMayor({ full_name: fullName.trim(), username: savedUsername, password: savedPassword, municipality_id: municipalityId })
       setCreatedCredentials({ username: savedUsername, password: savedPassword })
-      setFullName('')
-      setUsername('')
-      setPassword('')
-      setMunicipalityId('')
-      setShowForm(false)
+      setFullName(''); setUsername(''); setPassword(''); setMunicipalityId(''); setShowForm(false)
+      load()
       toast.success('تم إنشاء حساب رئيس البلدية')
     } catch (e: any) {
       toast.error(e.message || 'فشل إنشاء الحساب')
-    } finally {
-      setSubmitting(false)
-    }
+    } finally { setSubmitting(false) }
   }
 
-  const copyCredentials = (text: string) => {
-    navigator.clipboard.writeText(text)
-      .then(() => toast.success('تم النسخ'))
-      .catch(() => toast.error('تعذّر النسخ'))
+  const toggleActive = async (mayor: User) => {
+    try {
+      await api.updateAdminUser(mayor.id, { is_active: !mayor.isActive })
+      load(); toast.success(!mayor.isActive ? 'تم تفعيل الحساب' : 'تم تعطيل الحساب')
+    } catch (e: any) { toast.error(e.message || 'فشل التحديث') }
   }
+
+  const handleDelete = async (mayor: User) => {
+    if (!confirm(`حذف حساب ${mayor.fullName}؟`)) return
+    try { await api.deleteAdminUser(mayor.id); load(); toast.success('تم حذف/تعطيل الحساب') } catch (e: any) { toast.error(e.message || 'تعذّر حذف الحساب') }
+  }
+
+  const copyCredentials = (text: string) => navigator.clipboard.writeText(text).then(() => toast.success('تم النسخ')).catch(() => toast.error('تعذّر النسخ'))
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h2 className="text-xl font-semibold">رؤساء البلديات</h2>
-        <Button onClick={() => setShowForm(true)} size="sm">
-          <Plus className="ml-2" size={16} />
-          إنشاء حساب رئيس بلدية
-        </Button>
-      </div>
-
-      {createdCredentials && (
-        <Card className="border-green-500/40 bg-green-50 dark:bg-green-950/20">
-          <CardContent className="pt-4">
-            <p className="font-semibold text-green-700 dark:text-green-400 mb-2">تم إنشاء الحساب بنجاح – احفظ بيانات الدخول الآن</p>
-            <div className="space-y-2 text-sm">
-              <div className="flex items-center gap-2">
-                <span className="text-muted-foreground w-28">اسم المستخدم:</span>
-                <span className="font-mono font-bold">{createdCredentials.username}</span>
-                <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={() => copyCredentials(createdCredentials.username)}>نسخ</Button>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-muted-foreground w-28">كلمة المرور:</span>
-                <span className="font-mono font-bold">{createdCredentials.password}</span>
-                <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={() => copyCredentials(createdCredentials.password)}>نسخ</Button>
-              </div>
-              <div className="flex items-center gap-2 mt-1">
-                <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={() => copyCredentials(`${createdCredentials.username}\n${createdCredentials.password}`)}>نسخ الكل</Button>
-              </div>
-            </div>
-            <Button variant="outline" size="sm" className="mt-3" onClick={() => setCreatedCredentials(null)}>
-              إغلاق
-            </Button>
-          </CardContent>
-        </Card>
-      )}
-
-      {showForm && (
-        <Card className="border-primary/30">
-          <CardHeader>
-            <CardTitle className="text-base">بيانات رئيس البلدية الجديد</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="space-y-1">
-              <Label>الاسم الكامل</Label>
-              <Input value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="رئيس بلدية ..." dir="rtl" />
-            </div>
-            <div className="space-y-1">
-              <Label>اسم المستخدم</Label>
-              <Input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="mayor_..." dir="ltr" />
-            </div>
-            <div className="space-y-1">
-              <Label>كلمة المرور</Label>
-              <Input value={password} onChange={(e) => setPassword(e.target.value)} type="text" placeholder="كلمة المرور المؤقتة" dir="ltr" />
-            </div>
-            <div className="space-y-1">
-              <Label>البلدية</Label>
-              <Select value={municipalityId} onValueChange={setMunicipalityId}>
-                <SelectTrigger dir="rtl">
-                  <SelectValue placeholder="اختر البلدية" />
-                </SelectTrigger>
-                <SelectContent>
-                  {municipalities.map((m) => (
-                    <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex gap-2">
-              <Button onClick={handleCreate} disabled={submitting}>حفظ</Button>
-              <Button variant="outline" onClick={() => setShowForm(false)}>إلغاء</Button>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {!showForm && !createdCredentials && (
-        <p className="text-muted-foreground text-sm">انقر على "إنشاء حساب رئيس بلدية" لإضافة حساب جديد.</p>
-      )}
+      <div className="flex items-center justify-between"><h2 className="text-xl font-semibold">رؤساء البلديات</h2><Button onClick={() => setShowForm(true)} size="sm"><Plus className="ml-2" size={16} />إنشاء حساب رئيس بلدية</Button></div>
+      {createdCredentials && <Card className="border-green-500/40 bg-green-50 dark:bg-green-950/20"><CardContent className="pt-4"><p className="font-semibold text-green-700 dark:text-green-400 mb-2">تم إنشاء الحساب بنجاح – احفظ بيانات الدخول الآن</p><div className="space-y-2 text-sm"><div className="flex items-center gap-2"><span className="text-muted-foreground w-28">اسم المستخدم:</span><span className="font-mono font-bold">{createdCredentials.username}</span><Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={() => copyCredentials(createdCredentials.username)}>نسخ</Button></div><div className="flex items-center gap-2"><span className="text-muted-foreground w-28">كلمة المرور:</span><span className="font-mono font-bold">{createdCredentials.password}</span><Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={() => copyCredentials(createdCredentials.password)}>نسخ</Button></div></div></CardContent></Card>}
+      {showForm && <Card className="border-primary/30"><CardHeader><CardTitle className="text-base">بيانات رئيس البلدية الجديد</CardTitle></CardHeader><CardContent className="space-y-3"><div className="space-y-1"><Label>الاسم الكامل</Label><Input value={fullName} onChange={(e) => setFullName(e.target.value)} dir="rtl" /></div><div className="space-y-1"><Label>اسم المستخدم</Label><Input value={username} onChange={(e) => setUsername(e.target.value)} dir="ltr" /></div><div className="space-y-1"><Label>كلمة المرور</Label><Input value={password} onChange={(e) => setPassword(e.target.value)} type="text" dir="ltr" /></div><div className="space-y-1"><Label>البلدية</Label><Select value={municipalityId} onValueChange={setMunicipalityId}><SelectTrigger dir="rtl"><SelectValue placeholder="اختر البلدية" /></SelectTrigger><SelectContent>{municipalities.map((m) => <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>)}</SelectContent></Select></div><div className="flex gap-2"><Button onClick={handleCreate} disabled={submitting}>حفظ</Button><Button variant="outline" onClick={() => setShowForm(false)}>إلغاء</Button></div></CardContent></Card>}
+      <Card><CardContent className="pt-4">{mayors.length === 0 ? <p className="text-sm text-muted-foreground">لا توجد حسابات رؤساء بلديات.</p> : <Table><TableHeader><TableRow><TableHead>الاسم</TableHead><TableHead>اسم المستخدم</TableHead><TableHead>البلدية</TableHead><TableHead>الحالة</TableHead><TableHead>إجراءات</TableHead></TableRow></TableHeader><TableBody>{mayors.map((m) => <TableRow key={m.id}><TableCell>{m.fullName}</TableCell><TableCell dir="ltr">{m.username}</TableCell><TableCell>{municipalities.find((x) => x.id === m.municipalityId)?.name || '—'}</TableCell><TableCell><Badge variant={m.isActive ? 'default' : 'secondary'}>{m.isActive ? 'مفعّل' : 'معطّل'}</Badge></TableCell><TableCell><div className="flex gap-2"><Switch checked={m.isActive} onCheckedChange={() => toggleActive(m)} /><Button size="sm" variant="destructive" onClick={() => handleDelete(m)}>حذف</Button></div></TableCell></TableRow>)}</TableBody></Table>}</CardContent></Card>
     </div>
   )
 }
@@ -1178,6 +1156,7 @@ function MayorsView({ user }: { user: User }) {
 
 function MukhtarsView({ user }: { user: User }) {
   const [districts, setDistricts] = useState<{ id: string; name: string }[]>([])
+  const [mukhtars, setMukhtars] = useState<User[]>([])
   const [showForm, setShowForm] = useState(false)
   const [fullName, setFullName] = useState('')
   const [username, setUsername] = useState('')
@@ -1186,127 +1165,84 @@ function MukhtarsView({ user }: { user: User }) {
   const [createdCredentials, setCreatedCredentials] = useState<{ username: string; password: string } | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
-  useEffect(() => {
-    api.getAdminDistricts()
-      .then((list) => setDistricts(list.map((d) => ({ id: d.id, name: d.name }))))
-      .catch(() => toast.error('تعذّر تحميل الأحياء'))
+  const load = useCallback(() => {
+    api.getAdminDistricts().then((list) => setDistricts(list.map((d) => ({ id: d.id, name: d.name })))).catch(() => toast.error('تعذّر تحميل الأحياء'))
+    api.getMukhtars().then((list) => setMukhtars(list.map(toUser))).catch(() => toast.error('تعذّر تحميل المختارين'))
   }, [])
 
+  useEffect(() => { load() }, [load])
+
   const handleCreate = async () => {
-    if (!fullName.trim() || !username.trim() || !password.trim() || !districtId) {
-      toast.error('يرجى ملء جميع الحقول')
-      return
-    }
+    if (!fullName.trim() || !username.trim() || !password.trim() || !districtId) return toast.error('يرجى ملء جميع الحقول')
     setSubmitting(true)
     try {
-      const savedUsername = username.trim()
-      const savedPassword = password
-      await api.createMukhtar({
-        full_name: fullName.trim(),
-        username: savedUsername,
-        password: savedPassword,
-        district_id: districtId,
-      })
+      const savedUsername = username.trim(); const savedPassword = password
+      await api.createMukhtar({ full_name: fullName.trim(), username: savedUsername, password: savedPassword, district_id: districtId })
       setCreatedCredentials({ username: savedUsername, password: savedPassword })
-      setFullName('')
-      setUsername('')
-      setPassword('')
-      setDistrictId('')
-      setShowForm(false)
-      toast.success('تم إنشاء حساب المختار')
-    } catch (e: any) {
-      toast.error(e.message || 'فشل إنشاء الحساب')
-    } finally {
-      setSubmitting(false)
-    }
+      setFullName(''); setUsername(''); setPassword(''); setDistrictId(''); setShowForm(false)
+      load(); toast.success('تم إنشاء حساب المختار')
+    } catch (e: any) { toast.error(e.message || 'فشل إنشاء الحساب') } finally { setSubmitting(false) }
   }
 
-  const copyCredentials = (text: string) => {
-    navigator.clipboard.writeText(text)
-      .then(() => toast.success('تم النسخ'))
-      .catch(() => toast.error('تعذّر النسخ'))
+  const toggleActive = async (mukhtar: User) => {
+    try { await api.updateAdminUser(mukhtar.id, { is_active: !mukhtar.isActive }); load(); toast.success(!mukhtar.isActive ? 'تم التفعيل' : 'تم التعطيل') }
+    catch (e: any) { toast.error(e.message || 'فشل التحديث') }
   }
+
+  const handleDelete = async (mukhtar: User) => {
+    if (!confirm(`حذف حساب ${mukhtar.fullName}؟`)) return
+    try { await api.deleteAdminUser(mukhtar.id); load(); toast.success('تم حذف/تعطيل الحساب') } catch (e: any) { toast.error(e.message || 'تعذّر حذف الحساب') }
+  }
+
+  const copyCredentials = (text: string) => navigator.clipboard.writeText(text).then(() => toast.success('تم النسخ')).catch(() => toast.error('تعذّر النسخ'))
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h2 className="text-xl font-semibold">مخاتير الأحياء</h2>
-        <Button onClick={() => setShowForm(true)} size="sm">
-          <Plus className="ml-2" size={16} />
-          إنشاء حساب مختار
-        </Button>
-      </div>
-
-      {createdCredentials && (
-        <Card className="border-green-500/40 bg-green-50 dark:bg-green-950/20">
-          <CardContent className="pt-4">
-            <p className="font-semibold text-green-700 dark:text-green-400 mb-2">تم إنشاء الحساب بنجاح – احفظ بيانات الدخول الآن</p>
-            <div className="space-y-2 text-sm">
-              <div className="flex items-center gap-2">
-                <span className="text-muted-foreground w-28">اسم المستخدم:</span>
-                <span className="font-mono font-bold">{createdCredentials.username}</span>
-                <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={() => copyCredentials(createdCredentials.username)}>نسخ</Button>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-muted-foreground w-28">كلمة المرور:</span>
-                <span className="font-mono font-bold">{createdCredentials.password}</span>
-                <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={() => copyCredentials(createdCredentials.password)}>نسخ</Button>
-              </div>
-              <div className="flex items-center gap-2 mt-1">
-                <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={() => copyCredentials(`${createdCredentials.username}\n${createdCredentials.password}`)}>نسخ الكل</Button>
-              </div>
-            </div>
-            <Button variant="outline" size="sm" className="mt-3" onClick={() => setCreatedCredentials(null)}>
-              إغلاق
-            </Button>
-          </CardContent>
-        </Card>
-      )}
-
-      {showForm && (
-        <Card className="border-primary/30">
-          <CardHeader>
-            <CardTitle className="text-base">بيانات المختار الجديد</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="space-y-1">
-              <Label>الاسم الكامل</Label>
-              <Input value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="مختار حي ..." dir="rtl" />
-            </div>
-            <div className="space-y-1">
-              <Label>اسم المستخدم</Label>
-              <Input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="mukhtar_..." dir="ltr" />
-            </div>
-            <div className="space-y-1">
-              <Label>كلمة المرور</Label>
-              <Input value={password} onChange={(e) => setPassword(e.target.value)} type="text" placeholder="كلمة المرور المؤقتة" dir="ltr" />
-            </div>
-            <div className="space-y-1">
-              <Label>الحي</Label>
-              <Select value={districtId} onValueChange={setDistrictId}>
-                <SelectTrigger dir="rtl">
-                  <SelectValue placeholder="اختر الحي" />
-                </SelectTrigger>
-                <SelectContent>
-                  {districts.map((d) => (
-                    <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex gap-2">
-              <Button onClick={handleCreate} disabled={submitting}>حفظ</Button>
-              <Button variant="outline" onClick={() => setShowForm(false)}>إلغاء</Button>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {!showForm && !createdCredentials && (
-        <p className="text-muted-foreground text-sm">انقر على "إنشاء حساب مختار" لإضافة حساب جديد.</p>
-      )}
+      <div className="flex items-center justify-between"><h2 className="text-xl font-semibold">مخاتير الأحياء</h2><Button onClick={() => setShowForm(true)} size="sm"><Plus className="ml-2" size={16} />إنشاء حساب مختار</Button></div>
+      {createdCredentials && <Card className="border-green-500/40 bg-green-50 dark:bg-green-950/20"><CardContent className="pt-4"><p className="font-semibold text-green-700 dark:text-green-400 mb-2">تم إنشاء الحساب بنجاح – احفظ بيانات الدخول الآن</p><div className="space-y-2 text-sm"><div className="flex items-center gap-2"><span className="text-muted-foreground w-28">اسم المستخدم:</span><span className="font-mono font-bold">{createdCredentials.username}</span><Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={() => copyCredentials(createdCredentials.username)}>نسخ</Button></div><div className="flex items-center gap-2"><span className="text-muted-foreground w-28">كلمة المرور:</span><span className="font-mono font-bold">{createdCredentials.password}</span><Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={() => copyCredentials(createdCredentials.password)}>نسخ</Button></div></div></CardContent></Card>}
+      {showForm && <Card className="border-primary/30"><CardHeader><CardTitle className="text-base">بيانات المختار الجديد</CardTitle></CardHeader><CardContent className="space-y-3"><div className="space-y-1"><Label>الاسم الكامل</Label><Input value={fullName} onChange={(e) => setFullName(e.target.value)} dir="rtl" /></div><div className="space-y-1"><Label>اسم المستخدم</Label><Input value={username} onChange={(e) => setUsername(e.target.value)} dir="ltr" /></div><div className="space-y-1"><Label>كلمة المرور</Label><Input value={password} onChange={(e) => setPassword(e.target.value)} type="text" dir="ltr" /></div><div className="space-y-1"><Label>الحي</Label><Select value={districtId} onValueChange={setDistrictId}><SelectTrigger dir="rtl"><SelectValue placeholder="اختر الحي" /></SelectTrigger><SelectContent>{districts.map((d) => <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>)}</SelectContent></Select></div><div className="flex gap-2"><Button onClick={handleCreate} disabled={submitting}>حفظ</Button><Button variant="outline" onClick={() => setShowForm(false)}>إلغاء</Button></div></CardContent></Card>}
+      <Card><CardContent className="pt-4">{mukhtars.length === 0 ? <p className="text-sm text-muted-foreground">لا توجد حسابات مخاتير.</p> : <Table><TableHeader><TableRow><TableHead>الاسم</TableHead><TableHead>اسم المستخدم</TableHead><TableHead>الحي</TableHead><TableHead>الحالة</TableHead><TableHead>إجراءات</TableHead></TableRow></TableHeader><TableBody>{mukhtars.map((m) => <TableRow key={m.id}><TableCell>{m.fullName}</TableCell><TableCell dir="ltr">{m.username}</TableCell><TableCell>{districts.find((d) => d.id === m.districtId)?.name || '—'}</TableCell><TableCell><Badge variant={m.isActive ? 'default' : 'secondary'}>{m.isActive ? 'مفعّل' : 'معطّل'}</Badge></TableCell><TableCell><div className="flex gap-2"><Switch checked={m.isActive} onCheckedChange={() => toggleActive(m)} /><Button size="sm" variant="destructive" onClick={() => handleDelete(m)}>حذف</Button></div></TableCell></TableRow>)}</TableBody></Table>}</CardContent></Card>
     </div>
   )
+}
+
+
+function TeamsView({ user }: { user: User }) {
+  const [teams, setTeams] = useState<MunicipalTeam[]>([])
+  const [showForm, setShowForm] = useState(false)
+  const [teamName, setTeamName] = useState('')
+  const [leaderName, setLeaderName] = useState('')
+  const [leaderPhone, setLeaderPhone] = useState('')
+  const [notes, setNotes] = useState('')
+
+  const load = useCallback(() => {
+    api.getTeams().then((list) => setTeams(list.map(toMunicipalTeam))).catch(() => toast.error('تعذّر تحميل الفرق'))
+  }, [])
+  useEffect(() => { load() }, [load])
+
+  const createTeam = async () => {
+    if (!teamName.trim() || !leaderName.trim() || !leaderPhone.trim()) return toast.error('أكمل الحقول المطلوبة')
+    try {
+      await api.createTeam({ team_name: teamName.trim(), leader_name: leaderName.trim(), leader_phone: leaderPhone.trim(), notes: notes.trim() || undefined })
+      setTeamName(''); setLeaderName(''); setLeaderPhone(''); setNotes(''); setShowForm(false)
+      load(); toast.success('تم إنشاء الفريق')
+    } catch (e: any) { toast.error(e.message || 'فشل الإنشاء') }
+  }
+
+  const toggleActive = async (team: MunicipalTeam) => {
+    try { await api.updateTeam(team.id, { is_active: !team.isActive }); load(); toast.success(!team.isActive ? 'تم التفعيل' : 'تم التعطيل') }
+    catch (e: any) { toast.error(e.message || 'فشل التحديث') }
+  }
+  const deleteTeam = async (team: MunicipalTeam) => {
+    if (!confirm(`حذف الفريق "${team.teamName}"؟`)) return
+    try { await api.deleteTeam(team.id); load(); toast.success('تم حذف الفريق') } catch (e: any) { toast.error(e.message || 'تعذّر حذف الفريق') }
+  }
+
+  return <div className="space-y-4">
+    <div className="flex items-center justify-between"><h2 className="text-xl font-semibold">فرق البلدية</h2><Button onClick={() => setShowForm(true)} size="sm"><Plus className="ml-2" size={16} />إضافة فريق</Button></div>
+    {showForm && <Card><CardContent className="pt-4 space-y-2"><Input value={teamName} onChange={(e) => setTeamName(e.target.value)} placeholder="اسم الفريق" dir="rtl" /><Input value={leaderName} onChange={(e) => setLeaderName(e.target.value)} placeholder="اسم القائد" dir="rtl" /><Input value={leaderPhone} onChange={(e) => setLeaderPhone(e.target.value)} placeholder="رقم هاتف القائد" dir="ltr" /><Textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="ملاحظات" dir="rtl" /><div className="flex gap-2"><Button onClick={createTeam}>حفظ</Button><Button variant="outline" onClick={() => setShowForm(false)}>إلغاء</Button></div></CardContent></Card>}
+    <Card><CardContent className="pt-4">{teams.length === 0 ? <p className="text-sm text-muted-foreground">لا توجد فرق.</p> : <Table><TableHeader><TableRow><TableHead>الفريق</TableHead><TableHead>القائد</TableHead><TableHead>الهاتف</TableHead><TableHead>الحالة</TableHead><TableHead>إجراءات</TableHead></TableRow></TableHeader><TableBody>{teams.map((t) => <TableRow key={t.id}><TableCell>{t.teamName}</TableCell><TableCell>{t.leaderName}</TableCell><TableCell dir="ltr">{t.leaderPhone}</TableCell><TableCell><Badge variant={t.isActive ? 'default' : 'secondary'}>{t.isActive ? 'مفعّل' : 'معطّل'}</Badge></TableCell><TableCell><div className="flex gap-2"><Switch checked={t.isActive} onCheckedChange={() => toggleActive(t)} /><Button variant="destructive" size="sm" onClick={() => deleteTeam(t)}>حذف</Button></div></TableCell></TableRow>)}</TableBody></Table>}</CardContent></Card>
+  </div>
 }
 
 
@@ -1660,7 +1596,7 @@ export function AdminDashboard({ user, onLogout }: AdminDashboardProps) {
   const isGovernor = user.role === 'governor'
   const isMayor = user.role === 'mayor'
 
-  const [activeTab, setActiveTab] = useState<'requests' | 'municipalities' | 'mayors' | 'districts' | 'mukhtars' | 'reports'>('requests')
+  const [activeTab, setActiveTab] = useState<'requests' | 'municipalities' | 'mayors' | 'districts' | 'mukhtars' | 'teams' | 'reports'>('requests')
 
   const tabs: { key: typeof activeTab; label: string; show: boolean }[] = [
     { key: 'requests', label: 'الطلبات', show: true },
@@ -1668,6 +1604,7 @@ export function AdminDashboard({ user, onLogout }: AdminDashboardProps) {
     { key: 'mayors', label: 'رؤساء البلديات', show: isGovernor },
     { key: 'districts', label: 'الأحياء', show: isMayor },
     { key: 'mukhtars', label: 'مخاتير الأحياء', show: isMayor },
+    { key: 'teams', label: 'فرق البلدية', show: isMayor },
     { key: 'reports', label: 'التقارير الشهرية', show: true },
   ]
 
@@ -1713,6 +1650,7 @@ export function AdminDashboard({ user, onLogout }: AdminDashboardProps) {
         {activeTab === 'mayors' && isGovernor && <MayorsView user={user} />}
         {activeTab === 'districts' && isMayor && <DistrictsView user={user} />}
         {activeTab === 'mukhtars' && isMayor && <MukhtarsView user={user} />}
+        {activeTab === 'teams' && isMayor && <TeamsView user={user} />}
         {activeTab === 'reports' && <MonthlyReportsView user={user} />}
       </main>
     </div>
