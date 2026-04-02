@@ -143,6 +143,10 @@ class ServiceRequestOut(BaseModel):
     priority: str
     status: str
     responsible_team: Optional[str] = None
+    responsible_team_id: Optional[UUID] = None
+    responsible_team_name: Optional[str] = None
+    responsible_team_leader_name: Optional[str] = None
+    responsible_team_leader_phone: Optional[str] = None
     description: str
     tracking_code: str
     location_lat: Optional[float] = None
@@ -293,7 +297,43 @@ class CreateMukhtarRequest(BaseModel):
 # ─── Responsible Team ─────────────────────────────────────────────────────────
 
 class ResponsibleTeamUpdateRequest(BaseModel):
-    responsible_team: Optional[str] = None
+    responsible_team_id: Optional[UUID] = None
+
+
+class MunicipalTeamOut(BaseModel):
+    id: UUID
+    municipality_id: UUID
+    team_name: str
+    leader_name: str
+    leader_phone: str
+    notes: Optional[str] = None
+    is_active: bool
+
+    class Config:
+        from_attributes = True
+
+
+class MunicipalTeamCreate(BaseModel):
+    team_name: str
+    leader_name: str
+    leader_phone: str
+    notes: Optional[str] = None
+
+
+class MunicipalTeamUpdate(BaseModel):
+    team_name: Optional[str] = None
+    leader_name: Optional[str] = None
+    leader_phone: Optional[str] = None
+    notes: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+class UserAdminUpdate(BaseModel):
+    full_name: Optional[str] = None
+    username: Optional[str] = None
+    district_id: Optional[UUID] = None
+    municipality_id: Optional[UUID] = None
+    is_active: Optional[bool] = None
 
 
 # ─── Materials Used ───────────────────────────────────────────────────────────

@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.database import get_db
 from app.deps import get_current_user, require_roles, require_district_scope, require_municipality_scope
-from app.models import Attachment, AuditLog, District, Governorate, MaterialUsed, Municipality, RequestUpdate, ServiceRequest, User
+from app.models import Attachment, AuditLog, District, Governorate, MaterialUsed, MunicipalTeam, Municipality, RequestUpdate, ServiceRequest, User
 from app.auth import hash_password
 from app.schemas import (
     AdminServiceRequestCreate,
@@ -26,6 +26,9 @@ from app.schemas import (
     InternalNoteRequest,
     MaterialUsedCreate,
     MaterialUsedOut,
+    MunicipalTeamCreate,
+    MunicipalTeamOut,
+    MunicipalTeamUpdate,
     MonthlyReport,
     MunicipalityCreate,
     MunicipalityOut,
@@ -37,6 +40,7 @@ from app.schemas import (
     ServiceRequestDetail,
     ServiceRequestOut,
     StatusUpdateRequest,
+    UserAdminUpdate,
     UserOut,
 )
 from app.sla import calculate_sla_status, can_transition, get_sla_deadline, ROLE_TRANSITIONS
@@ -259,6 +263,118 @@ def update_district(
     db.commit()
     db.refresh(district)
     return district
+
+
+@router.delete("/districts/{district_id}", status_code=204)
+def delete_district(
+    district_id: UUID,
+    current_user: User = Depends(require_roles("mayor")),
+    db: Session = Depends(get_db),
+):
+    district = db.query(District).filter(
+        District.id == district_id,
+        District.municipality_id == current_user.municipality_id,
+    ).first()
+    if not district:
+        raise HTTPException(status_code=404, detail="District not found")
+    has_requests = db.query(ServiceRequest.id).filter(ServiceRequest.district_id == district_id).first()
+    has_users = db.query(User.id).filter(User.district_id == district_id).first()
+    if has_requests or has_users:
+        raise HTTPException(status_code=409, detail="لا يمكن حذف الحي لوجود طلبات أو مستخدمين مرتبطين به")
+    db.delete(district)
+    _log(db, current_user.id, "delete_district", "district", str(district_id))
+    db.commit()
+
+
+# ─── Municipal Teams ─────────────────────────────────────────────────────────
+
+@router.get("/teams", response_model=list[MunicipalTeamOut])
+def list_teams(
+    municipality_id: Optional[UUID] = Query(None),
+    current_user: User = Depends(require_roles("mayor", "governor")),
+    db: Session = Depends(get_db),
+):
+    q = db.query(MunicipalTeam)
+    if current_user.role == "mayor":
+        q = q.filter(MunicipalTeam.municipality_id == current_user.municipality_id)
+    else:
+        from sqlalchemy import select
+        mun_subq = select(Municipality.id).where(Municipality.governorate_id == current_user.governorate_id)
+        q = q.filter(MunicipalTeam.municipality_id.in_(mun_subq))
+        if municipality_id:
+            q = q.filter(MunicipalTeam.municipality_id == municipality_id)
+    return q.order_by(MunicipalTeam.created_at.desc()).all()
+
+
+@router.post("/teams", response_model=MunicipalTeamOut, status_code=201)
+def create_team(
+    payload: MunicipalTeamCreate,
+    current_user: User = Depends(require_roles("mayor")),
+    db: Session = Depends(get_db),
+):
+    team = MunicipalTeam(
+        municipality_id=current_user.municipality_id,
+        team_name=payload.team_name.strip(),
+        leader_name=payload.leader_name.strip(),
+        leader_phone=payload.leader_phone.strip(),
+        notes=payload.notes.strip() if payload.notes else None,
+        is_active=True,
+    )
+    db.add(team)
+    db.flush()
+    _log(db, current_user.id, "create_team", "municipal_team", str(team.id), team.team_name)
+    db.commit()
+    db.refresh(team)
+    return team
+
+
+@router.patch("/teams/{team_id}", response_model=MunicipalTeamOut)
+def update_team(
+    team_id: UUID,
+    payload: MunicipalTeamUpdate,
+    current_user: User = Depends(require_roles("mayor")),
+    db: Session = Depends(get_db),
+):
+    team = db.query(MunicipalTeam).filter(
+        MunicipalTeam.id == team_id,
+        MunicipalTeam.municipality_id == current_user.municipality_id,
+    ).first()
+    if not team:
+        raise HTTPException(status_code=404, detail="Municipal team not found")
+    if payload.team_name is not None:
+        team.team_name = payload.team_name.strip()
+    if payload.leader_name is not None:
+        team.leader_name = payload.leader_name.strip()
+    if payload.leader_phone is not None:
+        team.leader_phone = payload.leader_phone.strip()
+    if payload.notes is not None:
+        team.notes = payload.notes.strip() or None
+    if payload.is_active is not None:
+        team.is_active = payload.is_active
+    _log(db, current_user.id, "update_team", "municipal_team", str(team_id))
+    db.commit()
+    db.refresh(team)
+    return team
+
+
+@router.delete("/teams/{team_id}", status_code=204)
+def delete_team(
+    team_id: UUID,
+    current_user: User = Depends(require_roles("mayor")),
+    db: Session = Depends(get_db),
+):
+    team = db.query(MunicipalTeam).filter(
+        MunicipalTeam.id == team_id,
+        MunicipalTeam.municipality_id == current_user.municipality_id,
+    ).first()
+    if not team:
+        raise HTTPException(status_code=404, detail="Municipal team not found")
+    linked_request = db.query(ServiceRequest.id).filter(ServiceRequest.responsible_team_id == team.id).first()
+    if linked_request:
+        raise HTTPException(status_code=409, detail="لا يمكن حذف الفريق لأنه مرتبط بشكاوى")
+    db.delete(team)
+    _log(db, current_user.id, "delete_team", "municipal_team", str(team_id))
+    db.commit()
 
 
 # ─── Dashboard ─────────────────────────────────────────────────────────────────
@@ -649,6 +765,8 @@ def update_status(
 
     if payload.status == "resolved" and not (payload.completion_photo_url or "").strip():
         raise HTTPException(status_code=422, detail="completion_photo_url is required when resolving")
+    if payload.status == "resolved" and not (payload.note or "").strip():
+        raise HTTPException(status_code=422, detail="completion note is required when resolving")
 
     now = datetime.now(timezone.utc)
     old_status = req.status
@@ -778,30 +896,36 @@ def update_responsible_team(
     current_user: User = Depends(require_roles("mayor", "governor")),
     db: Session = Depends(get_db),
 ):
-    """Mayor or Governor can assign/change the responsible team for a request."""
+    """Mayor or Governor can assign/change the responsible municipal team for a request."""
     req = _scoped_requests(db, current_user).filter(ServiceRequest.id == request_id).first()
     if not req:
         raise HTTPException(status_code=404, detail="Request not found")
 
-    from app.models import RESPONSIBLE_TEAMS
-    if payload.responsible_team is not None and payload.responsible_team not in RESPONSIBLE_TEAMS:
-        raise HTTPException(
-            status_code=422,
-            detail=f"Invalid responsible_team. Allowed: {', '.join(RESPONSIBLE_TEAMS)}",
+    team = None
+    if payload.responsible_team_id is not None:
+        team_q = db.query(MunicipalTeam).filter(
+            MunicipalTeam.id == payload.responsible_team_id,
+            MunicipalTeam.is_active.is_(True),
         )
+        if current_user.role == "mayor":
+            team_q = team_q.filter(MunicipalTeam.municipality_id == current_user.municipality_id)
+        else:
+            from sqlalchemy import select
+            mun_subq = select(Municipality.id).where(Municipality.governorate_id == current_user.governorate_id)
+            team_q = team_q.filter(MunicipalTeam.municipality_id.in_(mun_subq))
+        team = team_q.first()
+        if not team:
+            raise HTTPException(status_code=404, detail="Municipal team not found")
 
-    old_team = req.responsible_team
-    req.responsible_team = payload.responsible_team
+    old_team = req.responsible_team_name or req.responsible_team
+    req.responsible_team_id = team.id if team else None
+    req.responsible_team = team.team_name if team else None
+    req.responsible_team_name = team.team_name if team else None
+    req.responsible_team_leader_name = team.leader_name if team else None
+    req.responsible_team_leader_phone = team.leader_phone if team else None
     req.updated_at = datetime.now(timezone.utc)
 
-    TEAM_LABELS = {
-        "electricity": "فريق الكهرباء",
-        "water": "فريق المياه",
-        "gas": "فريق الغاز",
-        "maintenance": "فريق الصيانة",
-        "sanitation": "فريق النظافة",
-    }
-    new_label = TEAM_LABELS.get(payload.responsible_team or "", payload.responsible_team or "—")
+    new_label = team.team_name if team else "—"
     db.add(RequestUpdate(
         request_id=req.id,
         actor_user_id=current_user.id,
@@ -810,7 +934,7 @@ def update_responsible_team(
         is_internal=True,
     ))
     _log(db, current_user.id, "update_responsible_team", "service_request", req.id,
-         f"{old_team} -> {payload.responsible_team}")
+         f"{old_team} -> {new_label}")
     db.commit()
     db.refresh(req)
     return req
@@ -1060,6 +1184,115 @@ def create_mukhtar(
     db.commit()
     db.refresh(new_user)
     return new_user
+
+
+@router.get("/users/mayors", response_model=list[UserOut])
+def list_mayors(
+    current_user: User = Depends(require_roles("governor")),
+    db: Session = Depends(get_db),
+):
+    return (
+        db.query(User)
+        .join(Municipality, Municipality.id == User.municipality_id)
+        .filter(
+            User.role == "mayor",
+            Municipality.governorate_id == current_user.governorate_id,
+        )
+        .order_by(User.created_at.desc())
+        .all()
+    )
+
+
+@router.get("/users/mukhtars", response_model=list[UserOut])
+def list_mukhtars(
+    current_user: User = Depends(require_roles("mayor")),
+    db: Session = Depends(get_db),
+):
+    return (
+        db.query(User)
+        .filter(
+            User.role == "mukhtar",
+            User.municipality_id == current_user.municipality_id,
+        )
+        .order_by(User.created_at.desc())
+        .all()
+    )
+
+
+@router.patch("/users/{user_id}", response_model=UserOut)
+def update_user_admin(
+    user_id: UUID,
+    payload: UserAdminUpdate,
+    current_user: User = Depends(require_roles("governor", "mayor")),
+    db: Session = Depends(get_db),
+):
+    q = db.query(User).filter(User.id == user_id)
+    if current_user.role == "governor":
+        q = q.filter(User.role == "mayor")
+    else:
+        q = q.filter(User.role == "mukhtar", User.municipality_id == current_user.municipality_id)
+    target = q.first()
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if payload.username is not None and payload.username != target.username:
+        exists = db.query(User.id).filter(User.username == payload.username, User.id != target.id).first()
+        if exists:
+            raise HTTPException(status_code=409, detail="اسم المستخدم مستخدم بالفعل")
+        target.username = payload.username.strip()
+    if payload.full_name is not None:
+        target.full_name = payload.full_name.strip()
+    if payload.is_active is not None:
+        target.is_active = payload.is_active
+
+    if current_user.role == "governor" and payload.municipality_id:
+        mun = db.query(Municipality).filter(
+            Municipality.id == payload.municipality_id,
+            Municipality.governorate_id == current_user.governorate_id,
+        ).first()
+        if not mun:
+            raise HTTPException(status_code=404, detail="Municipality not found")
+        target.municipality_id = payload.municipality_id
+
+    if current_user.role == "mayor" and payload.district_id:
+        district = db.query(District).filter(
+            District.id == payload.district_id,
+            District.municipality_id == current_user.municipality_id,
+        ).first()
+        if not district:
+            raise HTTPException(status_code=404, detail="District not found")
+        target.district_id = payload.district_id
+    _log(db, current_user.id, "update_user", "user", str(target.id))
+    db.commit()
+    db.refresh(target)
+    return target
+
+
+@router.delete("/users/{user_id}", status_code=204)
+def delete_user_admin(
+    user_id: UUID,
+    current_user: User = Depends(require_roles("governor", "mayor")),
+    db: Session = Depends(get_db),
+):
+    q = db.query(User).filter(User.id == user_id)
+    if current_user.role == "governor":
+        q = q.filter(User.role == "mayor")
+    else:
+        q = q.filter(User.role == "mukhtar", User.municipality_id == current_user.municipality_id)
+    target = q.first()
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    has_assignments = db.query(ServiceRequest.id).filter(ServiceRequest.assigned_to_user_id == target.id).first()
+    has_updates = db.query(RequestUpdate.id).filter(RequestUpdate.actor_user_id == target.id).first()
+    if has_assignments or has_updates:
+        target.is_active = False
+        _log(db, current_user.id, "deactivate_user", "user", str(target.id))
+        db.commit()
+        return
+    db.delete(target)
+    _log(db, current_user.id, "delete_user", "user", str(target.id))
+    db.commit()
 
 
 # ─── Monthly Reports ──────────────────────────────────────────────────────────

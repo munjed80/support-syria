@@ -17,7 +17,7 @@
  *   await api.updateStatus(id, { status: 'received' })
  */
 
-import type { ServiceRequest, RequestUpdate, District, Municipality, User, UserRole, MaterialUsed } from '@/lib/types'
+import type { ServiceRequest, RequestUpdate, District, Municipality, User, UserRole, MaterialUsed, MunicipalTeam } from '@/lib/types'
 
 const BASE_URL = (import.meta as any).env?.VITE_API_URL ?? '/api'
 
@@ -68,6 +68,10 @@ export interface ServiceRequestOut {
   priority: string
   status: string
   responsible_team?: string
+  responsible_team_id?: string
+  responsible_team_name?: string
+  responsible_team_leader_name?: string
+  responsible_team_leader_phone?: string
   description: string
   tracking_code: string
   location_lat?: number
@@ -226,6 +230,16 @@ export interface StatusUpdateRequest {
   note?: string
 }
 
+export interface MunicipalTeamOut {
+  id: string
+  municipality_id: string
+  team_name: string
+  leader_name: string
+  leader_phone: string
+  notes?: string
+  is_active: boolean
+}
+
 export interface RequestsFilter {
   municipality_id?: string
   district_id?: string
@@ -258,6 +272,10 @@ export function toServiceRequest(r: ServiceRequestOut & { municipality_name?: st
     priority: r.priority as any,
     status: r.status as any,
     responsibleTeam: r.responsible_team ?? undefined,
+    responsibleTeamId: r.responsible_team_id ?? undefined,
+    responsibleTeamName: r.responsible_team_name ?? undefined,
+    responsibleTeamLeaderName: r.responsible_team_leader_name ?? undefined,
+    responsibleTeamLeaderPhone: r.responsible_team_leader_phone ?? undefined,
     description: r.description,
     trackingCode: r.tracking_code,
     locationLat: r.location_lat ?? undefined,
@@ -278,6 +296,18 @@ export function toServiceRequest(r: ServiceRequestOut & { municipality_name?: st
     municipalityName: r.municipality_name ?? undefined,
     districtName: r.district_name ?? undefined,
     governorateName: r.governorate_name ?? undefined,
+  }
+}
+
+export function toMunicipalTeam(t: MunicipalTeamOut): MunicipalTeam {
+  return {
+    id: String(t.id),
+    municipalityId: String(t.municipality_id),
+    teamName: t.team_name,
+    leaderName: t.leader_name,
+    leaderPhone: t.leader_phone,
+    notes: t.notes ?? undefined,
+    isActive: t.is_active,
   }
 }
 
@@ -517,6 +547,10 @@ class ApiClient {
     return this.request<UserOut[]>(`/admin/staff${qs}`)
   }
 
+  async getMayors(): Promise<UserOut[]> {
+    return this.request<UserOut[]>('/admin/users/mayors')
+  }
+
   async createMayor(payload: {
     full_name: string
     username: string
@@ -527,6 +561,10 @@ class ApiClient {
       method: 'POST',
       body: JSON.stringify(payload),
     })
+  }
+
+  async getMukhtars(): Promise<UserOut[]> {
+    return this.request<UserOut[]>('/admin/users/mukhtars')
   }
 
   async createMukhtar(payload: {
@@ -592,8 +630,49 @@ class ApiClient {
   async updateResponsibleTeam(requestId: string, responsibleTeam: string | null): Promise<ServiceRequestOut> {
     return this.request<ServiceRequestOut>(`/admin/requests/${requestId}/responsible-team`, {
       method: 'POST',
-      body: JSON.stringify({ responsible_team: responsibleTeam }),
+      body: JSON.stringify({ responsible_team_id: responsibleTeam }),
     })
+  }
+
+  async updateAdminUser(
+    userId: string,
+    payload: { full_name?: string; username?: string; municipality_id?: string; district_id?: string; is_active?: boolean },
+  ): Promise<UserOut> {
+    return this.request<UserOut>(`/admin/users/${userId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    })
+  }
+
+  async deleteAdminUser(userId: string): Promise<void> {
+    return this.request<void>(`/admin/users/${userId}`, { method: 'DELETE' })
+  }
+
+  async deleteDistrict(id: string): Promise<void> {
+    return this.request<void>(`/admin/districts/${id}`, { method: 'DELETE' })
+  }
+
+  async getTeams(municipalityId?: string): Promise<MunicipalTeamOut[]> {
+    const qs = municipalityId ? `?municipality_id=${encodeURIComponent(municipalityId)}` : ''
+    return this.request<MunicipalTeamOut[]>(`/admin/teams${qs}`)
+  }
+
+  async createTeam(payload: { team_name: string; leader_name: string; leader_phone: string; notes?: string }): Promise<MunicipalTeamOut> {
+    return this.request<MunicipalTeamOut>('/admin/teams', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
+  }
+
+  async updateTeam(id: string, payload: { team_name?: string; leader_name?: string; leader_phone?: string; notes?: string; is_active?: boolean }): Promise<MunicipalTeamOut> {
+    return this.request<MunicipalTeamOut>(`/admin/teams/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    })
+  }
+
+  async deleteTeam(id: string): Promise<void> {
+    return this.request<void>(`/admin/teams/${id}`, { method: 'DELETE' })
   }
 
   async getMaterials(requestId: string): Promise<MaterialUsedOut[]> {

@@ -56,6 +56,25 @@ class District(Base):
     service_requests = relationship("ServiceRequest", back_populates="district")
 
 
+class MunicipalTeam(Base):
+    __tablename__ = "municipal_teams"
+    __table_args__ = (
+        UniqueConstraint("municipality_id", "team_name", name="uq_municipal_team_name_per_municipality"),
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    municipality_id = Column(UUID(as_uuid=True), ForeignKey("municipalities.id"), nullable=False)
+    team_name = Column(String(255), nullable=False)
+    leader_name = Column(String(255), nullable=False)
+    leader_phone = Column(String(50), nullable=False)
+    notes = Column(Text, nullable=True)
+    is_active = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+    municipality = relationship("Municipality")
+    service_requests = relationship("ServiceRequest", back_populates="responsible_team_entity")
+
+
 class User(Base):
     __tablename__ = "users"
 
@@ -123,6 +142,10 @@ class ServiceRequest(Base):
         default="new",
     )
     responsible_team = Column(String(50), nullable=True)
+    responsible_team_id = Column(UUID(as_uuid=True), ForeignKey("municipal_teams.id"), nullable=True)
+    responsible_team_name = Column(String(255), nullable=True)
+    responsible_team_leader_name = Column(String(255), nullable=True)
+    responsible_team_leader_phone = Column(String(50), nullable=True)
     description = Column(Text, nullable=False)
     tracking_code = Column(String(16), nullable=False, unique=True, index=True)
     location_lat = Column(Float, nullable=True)
@@ -151,6 +174,7 @@ class ServiceRequest(Base):
     assignments = relationship("Assignment", back_populates="request", cascade="all, delete-orphan")
     attachments = relationship("Attachment", back_populates="request", cascade="all, delete-orphan")
     materials_used = relationship("MaterialUsed", back_populates="request", cascade="all, delete-orphan")
+    responsible_team_entity = relationship("MunicipalTeam", back_populates="service_requests")
 
     @property
     def municipality_name(self) -> str | None:
