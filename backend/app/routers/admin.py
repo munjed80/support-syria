@@ -1340,7 +1340,7 @@ def assign_staff(
 def update_status(
     request_id: UUID,
     payload: StatusUpdateRequest,
-    current_user: User = Depends(require_roles(*ALLOWED_ROLES)),
+    current_user: User = Depends(require_roles("governor", "mayor", "municipal_admin", "mukhtar", "district_admin")),
     db: Session = Depends(get_db),
 ):
     req = _scoped_requests(db, current_user).filter(ServiceRequest.id == request_id).first()
@@ -1438,7 +1438,7 @@ def update_status(
 def update_priority(
     request_id: UUID,
     payload: PriorityUpdateRequest,
-    current_user: User = Depends(require_roles("district_admin", "municipal_admin", "mayor", "mukhtar")),
+    current_user: User = Depends(require_roles("district_admin", "municipal_admin", "mayor")),
     db: Session = Depends(get_db),
 ):
     req = _scoped_requests(db, current_user).filter(ServiceRequest.id == request_id).first()
@@ -1481,7 +1481,7 @@ def update_priority(
 def add_internal_note(
     request_id: UUID,
     payload: InternalNoteRequest,
-    current_user: User = Depends(require_roles(*ALLOWED_ROLES)),
+    current_user: User = Depends(require_roles("governor", "mayor", "municipal_admin", "mukhtar", "district_admin")),
     db: Session = Depends(get_db),
 ):
     req = _scoped_requests(db, current_user).filter(ServiceRequest.id == request_id).first()
@@ -1506,7 +1506,7 @@ def add_internal_note(
 def archive_request(
     request_id: UUID,
     payload: ArchiveRequest,
-    current_user: User = Depends(require_roles(*ALLOWED_ROLES)),
+    current_user: User = Depends(require_roles("governor", "mayor", "municipal_admin")),
     db: Session = Depends(get_db),
 ):
     req = _scoped_requests(db, current_user).filter(ServiceRequest.id == request_id).first()
@@ -1539,10 +1539,10 @@ def archive_request(
 def update_responsible_team(
     request_id: UUID,
     payload: ResponsibleTeamUpdateRequest,
-    current_user: User = Depends(require_roles("mayor", "governor")),
+    current_user: User = Depends(require_roles("mayor")),
     db: Session = Depends(get_db),
 ):
-    """Mayor or Governor can assign/change the responsible municipal team for a request."""
+    """Mayor can assign/change the responsible municipal team for a request."""
     req = _scoped_requests(db, current_user).filter(ServiceRequest.id == request_id).first()
     if not req:
         raise HTTPException(status_code=404, detail="Request not found")
@@ -1552,13 +1552,8 @@ def update_responsible_team(
         team_q = db.query(MunicipalTeam).filter(
             MunicipalTeam.id == payload.responsible_team_id,
             MunicipalTeam.is_active.is_(True),
+            MunicipalTeam.municipality_id == current_user.municipality_id,
         )
-        if current_user.role == "mayor":
-            team_q = team_q.filter(MunicipalTeam.municipality_id == current_user.municipality_id)
-        else:
-            from sqlalchemy import select
-            mun_subq = select(Municipality.id).where(Municipality.governorate_id == current_user.governorate_id)
-            team_q = team_q.filter(MunicipalTeam.municipality_id.in_(mun_subq))
         team = team_q.first()
         if not team:
             raise HTTPException(status_code=404, detail="Municipal team not found")
@@ -1611,7 +1606,7 @@ def list_materials(
 def add_material(
     request_id: UUID,
     payload: MaterialUsedCreate,
-    current_user: User = Depends(require_roles(*ALLOWED_ROLES)),
+    current_user: User = Depends(require_roles("mayor", "municipal_admin", "district_admin")),
     db: Session = Depends(get_db),
 ):
     req = _scoped_requests(db, current_user).filter(ServiceRequest.id == request_id).first()
@@ -1644,7 +1639,7 @@ def add_material(
 def delete_material(
     request_id: UUID,
     material_id: UUID,
-    current_user: User = Depends(require_roles(*ALLOWED_ROLES)),
+    current_user: User = Depends(require_roles("mayor", "municipal_admin", "district_admin")),
     db: Session = Depends(get_db),
 ):
     req = _scoped_requests(db, current_user).filter(ServiceRequest.id == request_id).first()
@@ -1687,7 +1682,7 @@ async def upload_attachment(
     request_id: UUID,
     file: UploadFile = File(...),
     kind: str = Query("other"),
-    current_user: User = Depends(require_roles(*ALLOWED_ROLES)),
+    current_user: User = Depends(require_roles("governor", "mayor", "municipal_admin", "mukhtar", "district_admin")),
     db: Session = Depends(get_db),
 ):
     req = _scoped_requests(db, current_user).filter(ServiceRequest.id == request_id).first()
