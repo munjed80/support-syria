@@ -155,6 +155,11 @@ class ServiceRequest(Base):
     assigned_to_name = Column(String(255), nullable=True)
     rejection_reason = Column(Text, nullable=True)
     completion_photo_url = Column(Text, nullable=True)
+    completion_note = Column(Text, nullable=True)
+    is_archived = Column(Boolean, default=False, nullable=False)
+    archived_at = Column(DateTime(timezone=True), nullable=True)
+    archived_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    archive_note = Column(Text, nullable=True)
     priority_escalated_at = Column(DateTime(timezone=True), nullable=True)
     is_auto_escalated = Column(Boolean, default=False, nullable=False)
     sla_deadline = Column(DateTime(timezone=True), nullable=True)
@@ -199,6 +204,7 @@ class RequestUpdate(Base):
     actor_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     actor_name = Column(String(255), nullable=True)
     message = Column(Text, nullable=True)
+    event_type = Column(String(64), nullable=True)
     from_status = Column(
         Enum("new", "under_review", "in_progress", "resolved", "rejected", "deferred",
              name="request_status"),
@@ -279,3 +285,19 @@ class AuditLog(Base):
     created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
 
     actor = relationship("User", back_populates="audit_logs")
+
+
+class Notification(Base):
+    __tablename__ = "notifications"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
+    kind = Column(String(100), nullable=False)
+    severity = Column(String(20), nullable=False, default="info")
+    title = Column(String(255), nullable=False)
+    message = Column(Text, nullable=False)
+    related_entity_type = Column(String(100), nullable=True)
+    related_entity_id = Column(String(255), nullable=True)
+    is_read = Column(Boolean, default=False, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+    read_at = Column(DateTime(timezone=True), nullable=True)

@@ -50,6 +50,7 @@ export function RequestDetailsDialog({ request, open, onOpenChange, currentUser,
   const [completionPhotoPreview, setCompletionPhotoPreview] = useState<string>('')
   const [assignedUserId, setAssignedUserId] = useState<string>('')
   const [saving, setSaving] = useState(false)
+  const [archiveNote, setArchiveNote] = useState('')
 
   // Materials used state
   const [materials, setMaterials] = useState<MaterialUsed[]>([])
@@ -250,6 +251,28 @@ export function RequestDetailsDialog({ request, open, onOpenChange, currentUser,
     }
   }
 
+  const handleArchiveToggle = async () => {
+    if (!['resolved', 'rejected', 'deferred'].includes(displayRequest.status)) {
+      toast.error('يمكن أرشفة السجلات المغلقة فقط')
+      return
+    }
+    setSaving(true)
+    try {
+      const updated = await api.setArchiveStatus(displayRequest.id, {
+        is_archived: !displayRequest.isArchived,
+        note: archiveNote.trim() || undefined,
+      })
+      setLiveRequest(toServiceRequest(updated))
+      setArchiveNote('')
+      toast.success(updated.is_archived ? 'تمت الأرشفة بنجاح' : 'تم إلغاء الأرشفة')
+      onUpdate?.()
+    } catch (error: any) {
+      toast.error(error?.message || 'تعذر تغيير حالة الأرشفة')
+    } finally {
+      setSaving(false)
+    }
+  }
+
   const handleResponsibleTeamChange = async () => {
     setSaving(true)
     try {
@@ -363,6 +386,11 @@ export function RequestDetailsDialog({ request, open, onOpenChange, currentUser,
                 <Printer size={16} />
                 طباعة الشكوى
               </Button>
+              {['resolved', 'rejected', 'deferred'].includes(displayRequest.status) && (
+                <Button variant="outline" size="sm" onClick={handleArchiveToggle} disabled={saving}>
+                  {displayRequest.isArchived ? 'إلغاء الأرشفة' : 'أرشفة'}
+                </Button>
+              )}
             </div>
           </DialogHeader>
 
@@ -482,6 +510,11 @@ export function RequestDetailsDialog({ request, open, onOpenChange, currentUser,
             currentUser.role === 'governor') && (
             <div className="space-y-4 border rounded-lg p-4 bg-muted/20">
               <h3 className="font-semibold text-lg">الإجراءات</h3>
+
+              <div className="space-y-2">
+                <Label>ملاحظة الأرشفة (اختياري)</Label>
+                <Textarea value={archiveNote} onChange={(e) => setArchiveNote(e.target.value)} rows={2} />
+              </div>
 
               <div className="space-y-2">
                 <Label>تغيير الأولوية</Label>

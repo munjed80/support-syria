@@ -82,6 +82,11 @@ export interface ServiceRequestOut {
   assigned_to_name?: string
   rejection_reason?: string
   completion_photo_url?: string
+  completion_note?: string
+  is_archived: boolean
+  archived_at?: string
+  archived_by_user_id?: string
+  archive_note?: string
   priority_escalated_at?: string
   is_auto_escalated: boolean
   sla_deadline?: string
@@ -98,6 +103,7 @@ export interface RequestUpdateOut {
   actor_user_id?: string
   actor_name?: string
   message?: string
+  event_type?: string
   from_status?: string
   to_status?: string
   from_priority?: string
@@ -155,15 +161,25 @@ export interface MonthlyReportPeriod {
 
 export interface MonthlyReport {
   period: MonthlyReportPeriod
+  report_type?: string | null
+  entity_name?: string | null
   total: number
   open: number
   in_progress: number
   resolved: number
   urgent: number
   overdue: number
+  backlog_open: number
+  closure_rate: number
+  overdue_rate: number
+  average_resolution_time_hours?: number
   most_common_category: string | null
   most_assigned_team: string | null
   top_district: string | null
+  top_categories: ReportCountEntry[]
+  top_teams: ReportCountEntry[]
+  best_performing_entities: ReportCountEntry[]
+  worst_performing_entities: ReportCountEntry[]
   by_category: ReportCountEntry[]
   by_status: ReportCountEntry[]
 }
@@ -259,6 +275,18 @@ export interface AccountabilityReport {
   top_teams: AccountabilityEntity[]
   top_delayed_entities: AccountabilityEntity[]
 }
+export interface NotificationOut {
+  id: string
+  kind: string
+  severity: 'info' | 'warning' | 'success' | 'error' | string
+  title: string
+  message: string
+  related_entity_type?: string
+  related_entity_id?: string
+  is_read: boolean
+  created_at: string
+  read_at?: string
+}
 
 // ─── Dashboard response shapes (one per role) ─────────────────────────────────
 
@@ -280,6 +308,10 @@ export interface MayorDashboard {
   open: number
   urgent: number
   overdue: number
+  backlog_open: number
+  closure_rate: number
+  overdue_rate: number
+  average_resolution_time_hours?: number
   most_problematic_district: string | null
   most_problematic_district_count: number
   most_common_category: string | null
@@ -346,6 +378,9 @@ export interface RequestsFilter {
   date_from?: string
   date_to?: string
   search?: string
+  archived?: boolean
+  archive_month?: number
+  archive_year?: number
   sort_by?: string
   sort_dir?: string
   assigned_to_me?: boolean
@@ -378,6 +413,11 @@ export function toServiceRequest(r: ServiceRequestOut & { municipality_name?: st
     assignedToName: r.assigned_to_name ?? undefined,
     rejectionReason: r.rejection_reason ?? undefined,
     completionPhotoUrl: r.completion_photo_url ?? undefined,
+    completionNote: r.completion_note ?? undefined,
+    isArchived: r.is_archived ?? false,
+    archivedAt: r.archived_at ?? undefined,
+    archivedByUserId: r.archived_by_user_id ?? undefined,
+    archiveNote: r.archive_note ?? undefined,
     priorityEscalatedAt: r.priority_escalated_at ?? undefined,
     isAutoEscalated: r.is_auto_escalated,
     slaDeadline: r.sla_deadline ?? undefined,
@@ -433,6 +473,7 @@ export function toRequestUpdate(u: RequestUpdateOut): RequestUpdate {
     actorUserId: u.actor_user_id ? String(u.actor_user_id) : undefined,
     actorName: u.actor_name ?? undefined,
     message: u.message ?? undefined,
+    eventType: u.event_type ?? undefined,
     fromStatus: u.from_status as any,
     toStatus: u.to_status as any,
     fromPriority: u.from_priority as any,
@@ -855,6 +896,38 @@ class ApiClient {
     p.set('year', String(params.year))
     return this.request<MonthlyReport>(`/admin/reports/governorate?${p.toString()}`)
   }
+  async setArchiveStatus(requestId: string, payload: { is_archived: boolean; note?: string }): Promise<ServiceRequestOut> {
+    return this.request<ServiceRequestOut>(`/admin/requests/${requestId}/archive`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
+  }
+
+  getExportUrl(dataset: string, params: Record<string, string | number | undefined> = {}): string {
+    const p = new URLSearchParams()
+    Object.entries(params).forEach(([k, v]) => { if (v !== undefined && v !== null) p.set(k, String(v)) })
+    return `${BASE_URL}/admin/exports/${dataset}${p.toString() ? `?${p.toString()}` : ''}`
+  }
+
+  async getNotifications(params: { unread_only?: boolean; limit?: number } = {}): Promise<NotificationOut[]> {
+    const p = new URLSearchParams()
+    if (params.unread_only) p.set('unread_only', 'true')
+    if (params.limit) p.set('limit', String(params.limit))
+    return this.request<NotificationOut[]>(`/admin/notifications${p.toString() ? `?${p.toString()}` : ''}`)
+  }
+
+  async markNotificationRead(id: string): Promise<void> {
+    return this.request<void>(`/admin/notifications/${id}/read`, { method: 'POST' })
+  }
+
+  async markAllNotificationsRead(): Promise<void> {
+    return this.request<void>('/admin/notifications/read-all', { method: 'POST' })
+  }
+
+  async generatePerformanceAlerts(): Promise<void> {
+    return this.request<void>('/admin/notifications/generate-alerts', { method: 'POST' })
+  }
+
 }
 
 export const api = new ApiClient()
