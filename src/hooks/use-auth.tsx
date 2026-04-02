@@ -31,7 +31,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const me = await api.me()
       setCurrentUser(toUser(me))
       return true
-    } catch {
+    } catch (err) {
+      console.error('Login failed:', err)
       return false
     }
   }

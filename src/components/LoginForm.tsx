@@ -29,6 +29,9 @@ export function LoginForm({ onLogin }: LoginFormProps) {
       if (!success) {
         toast.error('اسم المستخدم أو كلمة المرور غير صحيحة')
       }
+    } catch (err) {
+      console.error('Login submission error:', err)
+      toast.error('حدث خطأ أثناء تسجيل الدخول')
     } finally {
       setLoading(false)
     }
