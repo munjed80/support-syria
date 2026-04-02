@@ -67,9 +67,58 @@ def seed():
         db.flush()
 
         if IS_PRODUCTION:
+            # Create initial admin accounts for first login
+            prod_users = [
+                {
+                    "username": "gov_damascus",
+                    "password": "password123",
+                    "role": "governor",
+                    "full_name": "المحافظ - محافظة دمشق",
+                    "governorate_id": gov.id,
+                    "municipality_id": None,
+                    "district_id": None,
+                },
+                {
+                    "username": "mayor_damascus",
+                    "password": "password123",
+                    "role": "mayor",
+                    "full_name": "رئيس بلدية دمشق",
+                    "governorate_id": None,
+                    "municipality_id": mun.id,
+                    "district_id": None,
+                },
+                {
+                    "username": "mukhtar_mezzeh",
+                    "password": "password123",
+                    "role": "mukhtar",
+                    "full_name": "مختار حي المزة",
+                    "governorate_id": None,
+                    "municipality_id": mun.id,
+                    "district_id": districts[1].id,  # المزة
+                },
+            ]
+            for u in prod_users:
+                user = User(
+                    username=u["username"],
+                    full_name=u["full_name"],
+                    password_hash=hash_password(u["password"]),
+                    role=u["role"],
+                    governorate_id=u["governorate_id"],
+                    municipality_id=u["municipality_id"],
+                    district_id=u["district_id"],
+                    is_active=True,
+                    must_change_password=True,
+                )
+                db.add(user)
             db.commit()
-            print("✅ تم تهيئة البيانات الهيكلية (بيئة الإنتاج – بدون مستخدمين تجريبيين).")
-            print("   أنشئ المستخدمين يدوياً عبر سكربت الإنشاء أو واجهة الإدارة.")
+            print("✅ تم تهيئة البيانات الهيكلية وحسابات الإدارة (بيئة الإنتاج).")
+            print()
+            print("بيانات الدخول (اسم المستخدم / كلمة المرور):")
+            print("  المحافظ      : gov_damascus     / password123")
+            print("  رئيس البلدية : mayor_damascus   / password123")
+            print("  مختار المزة  : mukhtar_mezzeh   / password123")
+            print()
+            print("⚠️  يُنصح بتغيير كلمات المرور بعد أول تسجيل دخول.")
             return
 
         # Demo users (development only)

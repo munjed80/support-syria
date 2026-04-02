@@ -22,6 +22,9 @@ logger = logging.getLogger(__name__)
 settings = get_settings()
 limiter = Limiter(key_func=get_remote_address)
 
+# When behind nginx at /api, tell FastAPI so Swagger UI references the correct URLs
+_root_path = "/api" if settings.environment == "production" else ""
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -39,6 +42,7 @@ app = FastAPI(
     description="Backend API for the Arabic RTL Municipal Requests System",
     version="1.0.0",
     lifespan=lifespan,
+    root_path=_root_path,
 )
 
 app.state.limiter = limiter
