@@ -222,6 +222,28 @@ def update_municipality(
     return mun
 
 
+@router.delete("/municipalities/{municipality_id}", status_code=204)
+def delete_municipality(
+    municipality_id: UUID,
+    current_user: User = Depends(require_roles("governor")),
+    db: Session = Depends(get_db),
+):
+    mun = db.query(Municipality).filter(
+        Municipality.id == municipality_id,
+        Municipality.governorate_id == current_user.governorate_id,
+    ).first()
+    if not mun:
+        raise HTTPException(status_code=404, detail="Municipality not found")
+    has_districts = db.query(District.id).filter(District.municipality_id == municipality_id).first()
+    has_users = db.query(User.id).filter(User.municipality_id == municipality_id).first()
+    has_requests = db.query(ServiceRequest.id).filter(ServiceRequest.municipality_id == municipality_id).first()
+    if has_districts or has_users or has_requests:
+        raise HTTPException(status_code=409, detail="لا يمكن حذف البلدية لوجود أحياء أو مستخدمين أو شكاوى مرتبطة بها")
+    db.delete(mun)
+    _log(db, current_user.id, "delete_municipality", "municipality", str(municipality_id))
+    db.commit()
+
+
 # ─── Districts ────────────────────────────────────────────────────────────────
 
 @router.get("/districts", response_model=list[DistrictOut])

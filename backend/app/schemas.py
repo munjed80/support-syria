@@ -42,6 +42,7 @@ class UserOut(BaseModel):
     municipality_id: Optional[UUID] = None
     district_id: Optional[UUID] = None
     is_active: bool = True
+    created_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True
