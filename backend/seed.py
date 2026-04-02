@@ -120,8 +120,6 @@ def _ensure_initial_users(db, gov, mun, districts):
 
     if not IS_PRODUCTION:
         # Development-only accounts
-        damar = districts[0] if len(districts) > 0 else districts[0]
-        midan = districts[3] if len(districts) > 3 else districts[0]
         initial_users += [
             {
                 "username": "mukhtar_damar",
@@ -130,7 +128,7 @@ def _ensure_initial_users(db, gov, mun, districts):
                 "full_name": "مختار حي دمر",
                 "governorate_id": None,
                 "municipality_id": mun.id,
-                "district_id": damar.id,
+                "district_id": districts[0].id,
             },
             {
                 "username": "mukhtar_midan",
@@ -139,7 +137,7 @@ def _ensure_initial_users(db, gov, mun, districts):
                 "full_name": "مختار حي الميدان",
                 "governorate_id": None,
                 "municipality_id": mun.id,
-                "district_id": midan.id,
+                "district_id": districts[3].id,
             },
         ]
 
