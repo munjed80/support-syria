@@ -8,13 +8,13 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from fastapi.responses import StreamingResponse
-from sqlalchemy import func, or_
+from sqlalchemy import and_, case, func, or_
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.database import get_db
 from app.deps import get_current_user, require_roles, require_district_scope, require_municipality_scope
-from app.models import Attachment, AuditLog, District, Governorate, MaterialUsed, MunicipalTeam, Municipality, RequestUpdate, ServiceRequest, User
+from app.models import Attachment, AuditLog, District, Governorate, MaterialUsed, MunicipalTeam, Municipality, Notification, RequestUpdate, ServiceRequest, User
 from app.auth import hash_password
 from app.schemas import (
     AccountabilityReport,
@@ -43,6 +43,7 @@ from app.schemas import (
     MunicipalTeamOut,
     MunicipalTeamUpdate,
     MonthlyReport,
+    NotificationOut,
     MunicipalityCreate,
     MunicipalityOut,
     MunicipalityUpdate,
@@ -62,6 +63,11 @@ settings = get_settings()
 router = APIRouter(prefix="/admin", tags=["admin"])
 
 ALLOWED_ROLES = ("district_admin", "municipal_admin", "staff", "governor", "mayor", "mukhtar")
+ALERT_THRESHOLDS = {
+    "district_unresolved_open": 8,
+    "municipality_low_closure_rate": 45.0,
+    "team_open_assigned": 12,
+}
 
 
 def _scoped_requests(db: Session, user: User):
@@ -89,6 +95,69 @@ def _log(db: Session, actor_id, action: str, entity_type: str, entity_id: str, d
         details=details,
     )
     db.add(entry)
+
+
+def _create_notification(
+    db: Session,
+    user_id: UUID,
+    kind: str,
+    title: str,
+    message: str,
+    severity: str = "info",
+    related_entity_type: str | None = None,
+    related_entity_id: str | None = None,
+):
+    db.add(Notification(
+        user_id=user_id,
+        kind=kind,
+        severity=severity,
+        title=title,
+        message=message,
+        related_entity_type=related_entity_type,
+        related_entity_id=related_entity_id,
+    ))
+
+
+def _notify_request_scope(
+    db: Session,
+    req: ServiceRequest,
+    kind: str,
+    title: str,
+    message: str,
+    severity: str = "info",
+):
+    governor_users = (
+        db.query(User.id)
+        .join(Municipality, Municipality.governorate_id == User.governorate_id)
+        .filter(
+            Municipality.id == req.municipality_id,
+            User.role == "governor",
+            User.is_active.is_(True),
+        )
+        .all()
+    )
+    mayor_users = db.query(User.id).filter(
+        User.role == "mayor",
+        User.municipality_id == req.municipality_id,
+        User.is_active.is_(True),
+    ).all()
+    mukhtar_users = db.query(User.id).filter(
+        User.role == "mukhtar",
+        User.district_id == req.district_id,
+        User.is_active.is_(True),
+    ).all()
+
+    for row in governor_users + mayor_users + mukhtar_users:
+        _create_notification(
+            db=db,
+            user_id=row[0],
+            kind=kind,
+            title=title,
+            message=message,
+            severity=severity,
+            related_entity_type="service_request",
+            related_entity_id=str(req.id),
+        )
 
 
 def _signal_from_ratio(value: float, good_threshold: float, moderate_threshold: float, invert: bool = False) -> str:
@@ -556,6 +625,160 @@ def get_dashboard(
 
     # Staff / other roles — minimal stats
     return {"role": current_user.role, "total": base_q.count()}
+
+
+# ─── Notifications ────────────────────────────────────────────────────────────
+
+@router.get("/notifications", response_model=list[NotificationOut])
+def list_notifications(
+    unread_only: bool = Query(False),
+    limit: int = Query(100, ge=1, le=300),
+    current_user: User = Depends(require_roles(*ALLOWED_ROLES)),
+    db: Session = Depends(get_db),
+):
+    q = db.query(Notification).filter(Notification.user_id == current_user.id)
+    if unread_only:
+        q = q.filter(Notification.is_read.is_(False))
+    return q.order_by(Notification.created_at.desc()).limit(limit).all()
+
+
+@router.post("/notifications/{notification_id}/read", status_code=204)
+def mark_notification_read(
+    notification_id: UUID,
+    current_user: User = Depends(require_roles(*ALLOWED_ROLES)),
+    db: Session = Depends(get_db),
+):
+    notif = db.query(Notification).filter(
+        Notification.id == notification_id,
+        Notification.user_id == current_user.id,
+    ).first()
+    if not notif:
+        raise HTTPException(status_code=404, detail="Notification not found")
+    notif.is_read = True
+    notif.read_at = datetime.now(timezone.utc)
+    db.commit()
+
+
+@router.post("/notifications/read-all", status_code=204)
+def mark_all_notifications_read(
+    current_user: User = Depends(require_roles(*ALLOWED_ROLES)),
+    db: Session = Depends(get_db),
+):
+    now = datetime.now(timezone.utc)
+    db.query(Notification).filter(
+        Notification.user_id == current_user.id,
+        Notification.is_read.is_(False),
+    ).update({"is_read": True, "read_at": now}, synchronize_session=False)
+    db.commit()
+
+
+@router.post("/notifications/generate-alerts", status_code=204)
+def generate_performance_alerts(
+    current_user: User = Depends(require_roles("governor", "mayor", "mukhtar")),
+    db: Session = Depends(get_db),
+):
+    now = datetime.now(timezone.utc)
+    if current_user.role == "governor":
+        mun_rows = (
+            db.query(
+                Municipality.name,
+                func.count(ServiceRequest.id).label("total"),
+                func.sum(case((ServiceRequest.status == "resolved", 1), else_=0)).label("resolved"),
+                func.sum(
+                    case(
+                        (
+                            and_(
+                                ServiceRequest.closed_at.is_(None),
+                                ServiceRequest.sla_deadline.isnot(None),
+                                ServiceRequest.sla_deadline < now,
+                            ),
+                            1,
+                        ),
+                        else_=0,
+                    )
+                ).label("overdue_open"),
+            )
+            .join(ServiceRequest, ServiceRequest.municipality_id == Municipality.id)
+            .filter(Municipality.governorate_id == current_user.governorate_id)
+            .group_by(Municipality.name)
+            .all()
+        )
+        for name, total, resolved, overdue_open in mun_rows:
+            total = total or 0
+            resolved = resolved or 0
+            overdue_open = overdue_open or 0
+            closure_rate = (resolved / total) * 100 if total else 0
+            overdue_rate = (overdue_open / total) * 100 if total else 0
+            if total >= ALERT_THRESHOLDS["district_unresolved_open"] and (closure_rate < ALERT_THRESHOLDS["municipality_low_closure_rate"] or overdue_rate > 25):
+                _create_notification(
+                    db=db,
+                    user_id=current_user.id,
+                    kind="performance_alert",
+                    title="تنبيه أداء بلدية",
+                    message=f"بلدية {name}: إنجاز {round(closure_rate, 1)}% وتأخر {round(overdue_rate, 1)}%",
+                    severity="warning",
+                    related_entity_type="municipality",
+                )
+    elif current_user.role == "mayor":
+        district_rows = (
+            db.query(District.name, func.count(ServiceRequest.id))
+            .join(ServiceRequest, ServiceRequest.district_id == District.id)
+            .filter(
+                ServiceRequest.municipality_id == current_user.municipality_id,
+                ServiceRequest.status.in_(["new", "under_review", "in_progress", "deferred"]),
+            )
+            .group_by(District.name)
+            .all()
+        )
+        for district_name, open_count in district_rows:
+            if open_count >= ALERT_THRESHOLDS["district_unresolved_open"]:
+                _create_notification(
+                    db=db,
+                    user_id=current_user.id,
+                    kind="performance_alert",
+                    title="تنبيه تراكم شكاوى",
+                    message=f"الحي {district_name} لديه {open_count} شكوى غير مغلقة.",
+                    severity="warning",
+                    related_entity_type="district",
+                )
+        team_rows = (
+            db.query(MunicipalTeam.team_name, func.count(ServiceRequest.id))
+            .join(ServiceRequest, ServiceRequest.responsible_team_id == MunicipalTeam.id)
+            .filter(
+                MunicipalTeam.municipality_id == current_user.municipality_id,
+                ServiceRequest.status.in_(["new", "under_review", "in_progress", "deferred"]),
+            )
+            .group_by(MunicipalTeam.team_name)
+            .all()
+        )
+        for team_name, open_count in team_rows:
+            if open_count >= ALERT_THRESHOLDS["team_open_assigned"]:
+                _create_notification(
+                    db=db,
+                    user_id=current_user.id,
+                    kind="performance_alert",
+                    title="تنبيه ضغط فرق",
+                    message=f"الفريق {team_name} لديه {open_count} شكاوى مفتوحة مكلّف بها.",
+                    severity="warning",
+                    related_entity_type="team",
+                )
+    else:
+        overdue_count = _scoped_requests(db, current_user).filter(
+            ServiceRequest.closed_at.is_(None),
+            ServiceRequest.sla_deadline.isnot(None),
+            ServiceRequest.sla_deadline < now,
+        ).count()
+        if overdue_count > 0:
+            _create_notification(
+                db=db,
+                user_id=current_user.id,
+                kind="overdue_alert",
+                title="تنبيه شكاوى متأخرة",
+                message=f"يوجد {overdue_count} شكاوى متأخرة في نطاق الحي.",
+                severity="warning",
+                related_entity_type="district",
+            )
+    db.commit()
 
 
 # ─── Requests ─────────────────────────────────────────────────────────────────
@@ -1062,6 +1285,14 @@ def create_request(
         event_type="created",
         is_internal=False,
     ))
+    _notify_request_scope(
+        db,
+        req,
+        kind="new_complaint",
+        title="شكوى جديدة",
+        message=f"تم تسجيل شكوى جديدة برقم {req.complaint_number or req.tracking_code}",
+        severity="info",
+    )
     _log(db, current_user.id, "create_request", "service_request", req.id)
     db.commit()
     db.refresh(req)
@@ -1100,6 +1331,14 @@ def assign_staff(
         is_internal=True,
     )
     db.add(update)
+    _notify_request_scope(
+        db,
+        req,
+        kind="assignment",
+        title="تعيين شكوى",
+        message=f"تم تعيين الشكوى إلى {staff.name}",
+        severity="info",
+    )
     _log(db, current_user.id, "assign_staff", "service_request", req.id, str(staff.id))
     db.commit()
     db.refresh(req)
@@ -1182,6 +1421,20 @@ def update_status(
             event_type="note_added",
             is_internal=True,
         ))
+
+    status_kind = {
+        "resolved": "resolved",
+        "rejected": "rejected",
+        "deferred": "deferred",
+    }.get(payload.status, "status_changed")
+    _notify_request_scope(
+        db,
+        req,
+        kind=status_kind,
+        title="تحديث حالة شكوى",
+        message=f"تم تغيير الحالة إلى {payload.status}",
+        severity="success" if payload.status == "resolved" else "warning" if payload.status in ("rejected", "deferred") else "info",
+    )
 
     _log(db, current_user.id, "status_change", "service_request", req.id,
          f"{old_status} -> {payload.status}")
@@ -1336,6 +1589,14 @@ def update_responsible_team(
         event_type="team_assigned",
         is_internal=True,
     ))
+    _notify_request_scope(
+        db,
+        req,
+        kind="team_assigned",
+        title="تعيين فريق",
+        message=f"تم تعيين الفريق: {new_label}",
+        severity="info",
+    )
     _log(db, current_user.id, "update_responsible_team", "service_request", req.id,
          f"{old_team} -> {new_label}")
     db.commit()
@@ -1546,8 +1807,8 @@ def create_mayor(
     db.flush()
     _log(db, current_user.id, "create_mayor", "user", str(new_user.id), payload.username)
     db.commit()
-    db.refresh(new_user)
-    return new_user
+    created = db.query(User).filter(User.id == new_user.id).first()
+    return created
 
 
 @router.post("/users/mukhtars", response_model=UserOut, status_code=201)
@@ -1586,8 +1847,8 @@ def create_mukhtar(
     db.flush()
     _log(db, current_user.id, "create_mukhtar", "user", str(new_user.id), payload.username)
     db.commit()
-    db.refresh(new_user)
-    return new_user
+    created = db.query(User).filter(User.id == new_user.id).first()
+    return created
 
 
 @router.get("/users/mayors", response_model=list[UserOut])

@@ -234,11 +234,11 @@ class StatusUpdateRequest(BaseModel):
     status: str
     rejection_reason: Optional[str] = None
     completion_photo_url: Optional[str] = None
-    completion_note: Optional[str] = None
-    is_archived: bool = False
-    archived_at: Optional[datetime] = None
-    archived_by_user_id: Optional[UUID] = None
-    archive_note: Optional[str] = None
+    note: Optional[str] = None
+
+
+class ArchiveRequest(BaseModel):
+    is_archived: bool = True
     note: Optional[str] = None
 
 
@@ -346,6 +346,22 @@ class UserAdminUpdate(BaseModel):
     district_id: Optional[UUID] = None
     municipality_id: Optional[UUID] = None
     is_active: Optional[bool] = None
+
+
+class NotificationOut(BaseModel):
+    id: UUID
+    kind: str
+    severity: str
+    title: str
+    message: str
+    related_entity_type: Optional[str] = None
+    related_entity_id: Optional[str] = None
+    is_read: bool
+    created_at: datetime
+    read_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
 
 
 # ─── Materials Used ───────────────────────────────────────────────────────────

@@ -63,7 +63,7 @@ def submit_request(
 
     # Eagerly load municipality for complaint number generation
     from sqlalchemy.orm import joinedload
-    from app.routers.admin import _generate_complaint_number
+    from app.routers.admin import _generate_complaint_number, _notify_request_scope
     district = (
         db.query(District)
         .options(joinedload(District.municipality))
@@ -98,9 +98,17 @@ def submit_request(
     db.add(RequestUpdate(
         request_id=new_req.id,
         message="تم استلام الطلب",
+        event_type="created",
         to_status="new",
         is_internal=False,
     ))
+    _notify_request_scope(
+        db,
+        new_req,
+        kind="new_complaint",
+        title="شكوى جديدة",
+        message=f"تم تسجيل شكوى جديدة برقم {new_req.complaint_number or new_req.tracking_code}",
+    )
     db.commit()
     db.refresh(new_req)
     return new_req

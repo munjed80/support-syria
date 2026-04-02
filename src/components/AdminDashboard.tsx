@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { api, toMunicipalTeam, toServiceRequest, toDistrict, toMunicipality, toUser, MunicipalityOut, DistrictOut, DashboardData, MukhtarDashboard, MayorDashboard, GovernorDashboard, MonthlyReport, GovernorPerformanceDashboardResponse, MayorPerformanceDashboardResponse, AccountabilityReport } from '@/lib/api'
+import { api, toMunicipalTeam, toServiceRequest, toDistrict, toMunicipality, toUser, MunicipalityOut, DistrictOut, DashboardData, MukhtarDashboard, MayorDashboard, GovernorDashboard, MonthlyReport, GovernorPerformanceDashboardResponse, MayorPerformanceDashboardResponse, AccountabilityReport, NotificationOut } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -18,7 +18,7 @@ import {
   TableHeader,
   TableRow
 } from '@/components/ui/table'
-import { SignOut, ChartBar, Buildings, Warning, ClipboardText, Plus, MagnifyingGlass, MapPin, Users, CheckCircle, Timer, Wrench, Printer, PencilSimple, CaretDown, DownloadSimple, ArchiveBox } from '@phosphor-icons/react'
+import { SignOut, ChartBar, Buildings, Warning, ClipboardText, Plus, MagnifyingGlass, MapPin, Users, CheckCircle, Timer, Wrench, Printer, PencilSimple, CaretDown, DownloadSimple, ArchiveBox, Bell } from '@phosphor-icons/react'
 import { CATEGORIES, STATUSES, STATUS_COLORS, PRIORITIES, PRIORITY_BADGE_COLORS, RESPONSIBLE_TEAMS, formatRelativeTime, isOverdue } from '@/lib/constants'
 import { RequestDetailsDialog } from '@/components/RequestDetailsDialog'
 import { PrintReport } from '@/components/PrintReport'
@@ -1199,13 +1199,14 @@ function MayorsView({ user }: { user: User }) {
   const [editMunicipalityId, setEditMunicipalityId] = useState('')
   const [deleteTarget, setDeleteTarget] = useState<User | null>(null)
 
-  const load = useCallback(() => {
-    api.getMunicipalities()
-      .then((list) => setMunicipalities(list.map((m) => ({ id: m.id, name: m.name }))))
-      .catch(() => toast.error('تعذّر تحميل البلديات'))
-    api.getMayors()
-      .then((list) => setMayors(list.map(toUser)))
-      .catch(() => toast.error('تعذّر تحميل رؤساء البلديات'))
+  const load = useCallback(async () => {
+    try {
+      const [munList, mayorList] = await Promise.all([api.getMunicipalities(), api.getMayors()])
+      setMunicipalities(munList.map((m) => ({ id: m.id, name: m.name })))
+      setMayors(mayorList.map(toUser))
+    } catch {
+      toast.error('تعذّر تحميل بيانات رؤساء البلديات')
+    }
   }, [])
 
   useEffect(() => { load() }, [load])
@@ -1219,9 +1220,10 @@ function MayorsView({ user }: { user: User }) {
     try {
       const savedUsername = username.trim()
       const savedPassword = password
-      const created = await api.createMayor({ full_name: fullName.trim(), username: savedUsername, password: savedPassword, municipality_id: municipalityId })
+      await api.createMayor({ full_name: fullName.trim(), username: savedUsername, password: savedPassword, municipality_id: municipalityId })
       setCreatedCredentials({ username: savedUsername, password: savedPassword })
-      setMayors((prev) => [toUser(created), ...prev])
+      await new Promise((r) => setTimeout(r, 150))
+      await load()
       setFullName(''); setUsername(''); setPassword(''); setMunicipalityId(''); setShowForm(false)
       toast.success('تم إنشاء حساب رئيس البلدية')
     } catch (e: any) {
@@ -1259,7 +1261,7 @@ function MayorsView({ user }: { user: User }) {
     if (!deleteTarget) return
     try {
       await api.deleteAdminUser(deleteTarget.id)
-      setMayors((prev) => prev.filter((item) => item.id !== deleteTarget.id))
+      await load()
       setDeleteTarget(null)
       toast.success('تم حذف/تعطيل الحساب')
     } catch (e: any) {
@@ -1272,7 +1274,7 @@ function MayorsView({ user }: { user: User }) {
       <div className="flex items-center justify-between"><h2 className="text-xl font-semibold">رؤساء البلديات</h2><Button onClick={() => setShowForm(true)}><Plus className="ml-2" size={16} />إنشاء حساب رئيس بلدية</Button></div>
       {createdCredentials && <Card className="border-green-500/40 bg-green-50 dark:bg-green-950/20"><CardContent className="pt-4"><p className="font-semibold text-green-700 dark:text-green-400 mb-2">تم إنشاء الحساب بنجاح – احفظ بيانات الدخول الآن</p><div className="space-y-2 text-sm"><div className="flex items-center gap-2"><span className="text-muted-foreground w-28">اسم المستخدم:</span><span className="font-mono font-bold">{createdCredentials.username}</span><Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={() => copyCredentials(createdCredentials.username)}>نسخ</Button></div><div className="flex items-center gap-2"><span className="text-muted-foreground w-28">كلمة المرور:</span><span className="font-mono font-bold">{createdCredentials.password}</span><Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={() => copyCredentials(createdCredentials.password)}>نسخ</Button></div></div></CardContent></Card>}
       {showForm && <Card className="border-primary/30"><CardHeader><CardTitle className="text-base">بيانات رئيس البلدية الجديد</CardTitle></CardHeader><CardContent className="space-y-3"><div className="space-y-1"><Label>الاسم الكامل</Label><Input value={fullName} onChange={(e) => setFullName(e.target.value)} dir="rtl" /></div><div className="space-y-1"><Label>اسم المستخدم</Label><Input value={username} onChange={(e) => setUsername(e.target.value)} dir="ltr" /></div><div className="space-y-1"><Label>كلمة المرور</Label><Input value={password} onChange={(e) => setPassword(e.target.value)} type="text" dir="ltr" /></div><div className="space-y-1"><Label>البلدية</Label><Select value={municipalityId} onValueChange={setMunicipalityId}><SelectTrigger dir="rtl"><SelectValue placeholder="اختر البلدية" /></SelectTrigger><SelectContent>{municipalities.map((m) => <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>)}</SelectContent></Select></div><div className="flex gap-2"><Button onClick={handleCreate} disabled={submitting}>حفظ</Button><Button variant="outline" onClick={() => setShowForm(false)}>إلغاء</Button></div></CardContent></Card>}
-      <Card><CardContent className="pt-4">{mayors.length === 0 ? <EmptyState title="لا يوجد رؤساء بلديات بعد" description="أنشئ أول حساب رئيس بلدية لبدء إدارة الأحياء." actionLabel="إنشاء رئيس بلدية" onAction={() => setShowForm(true)} /> : <Table><TableHeader><TableRow><TableHead>الاسم الكامل</TableHead><TableHead>اسم المستخدم</TableHead><TableHead>البلدية</TableHead><TableHead>الحالة</TableHead><TableHead>تاريخ الإنشاء</TableHead><TableHead>إجراءات</TableHead></TableRow></TableHeader><TableBody>{mayors.map((m) => <TableRow key={m.id}><TableCell>{m.fullName}</TableCell><TableCell dir="ltr">{m.username}</TableCell><TableCell>{municipalities.find((x) => x.id === m.municipalityId)?.name || '—'}</TableCell><TableCell><Badge variant={m.isActive ? 'default' : 'secondary'}>{m.isActive ? 'مفعّل' : 'معطّل'}</Badge></TableCell><TableCell>{m.createdAt ? new Date(m.createdAt).toLocaleDateString('ar-EG') : '—'}</TableCell><TableCell><div className="flex gap-2"><Switch checked={m.isActive} onCheckedChange={() => toggleActive(m)} /><Button size="sm" variant="outline" onClick={() => { setEditing(m); setEditFullName(m.fullName); setEditUsername(m.username); setEditMunicipalityId(m.municipalityId || '') }}>تعديل</Button><Button size="sm" variant="destructive" onClick={() => setDeleteTarget(m)}>حذف</Button></div></TableCell></TableRow>)}</TableBody></Table>}</CardContent></Card>
+      <Card><CardContent className="pt-4">{mayors.length === 0 ? <EmptyState title="لا يوجد رؤساء بلديات بعد" description="أنشئ أول حساب رئيس بلدية لبدء إدارة الأحياء." actionLabel="إنشاء رئيس بلدية" onAction={() => setShowForm(true)} /> : <Table><TableHeader><TableRow><TableHead>الاسم الكامل</TableHead><TableHead>اسم المستخدم</TableHead><TableHead>الدور</TableHead><TableHead>البلدية</TableHead><TableHead>الحي</TableHead><TableHead>الحالة</TableHead><TableHead>تاريخ الإنشاء</TableHead><TableHead>إجراءات</TableHead></TableRow></TableHeader><TableBody>{mayors.map((m) => <TableRow key={m.id}><TableCell>{m.fullName}</TableCell><TableCell dir="ltr">{m.username}</TableCell><TableCell>رئيس بلدية</TableCell><TableCell>{municipalities.find((x) => x.id === m.municipalityId)?.name || '—'}</TableCell><TableCell>—</TableCell><TableCell><Badge variant={m.isActive ? 'default' : 'secondary'}>{m.isActive ? 'مفعّل' : 'معطّل'}</Badge></TableCell><TableCell>{m.createdAt ? new Date(m.createdAt).toLocaleDateString('ar-EG') : '—'}</TableCell><TableCell><div className="flex gap-2"><Switch checked={m.isActive} onCheckedChange={() => toggleActive(m)} /><Button size="sm" variant="outline" onClick={() => { setEditing(m); setEditFullName(m.fullName); setEditUsername(m.username); setEditMunicipalityId(m.municipalityId || '') }}>تعديل</Button><Button size="sm" variant="destructive" onClick={() => setDeleteTarget(m)}>حذف</Button></div></TableCell></TableRow>)}</TableBody></Table>}</CardContent></Card>
       {editing && <Dialog open={!!editing} onOpenChange={() => setEditing(null)}><DialogContent className="max-w-md"><DialogHeader><DialogTitle>تعديل رئيس البلدية</DialogTitle></DialogHeader><div className="space-y-2"><Input value={editFullName} onChange={(e) => setEditFullName(e.target.value)} dir="rtl" /><Input value={editUsername} onChange={(e) => setEditUsername(e.target.value)} dir="ltr" /><Select value={editMunicipalityId} onValueChange={setEditMunicipalityId}><SelectTrigger><SelectValue placeholder="اختر البلدية" /></SelectTrigger><SelectContent>{municipalities.map((m) => <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>)}</SelectContent></Select></div><DialogFooter><Button variant="outline" onClick={() => setEditing(null)}>إلغاء</Button><Button onClick={handleSaveEdit}>حفظ</Button></DialogFooter></DialogContent></Dialog>}
       {deleteTarget && <Dialog open={!!deleteTarget} onOpenChange={() => setDeleteTarget(null)}><DialogContent className="max-w-md"><DialogHeader><DialogTitle>تأكيد الحذف</DialogTitle></DialogHeader><p className="text-sm text-muted-foreground">سيتم حذف الحساب إن كان آمناً، أو تعطيله تلقائياً إذا كان مرتبطاً بسجل عمليات.</p><DialogFooter><Button variant="outline" onClick={() => setDeleteTarget(null)}>إلغاء</Button><Button variant="destructive" onClick={removeMayor}>تأكيد</Button></DialogFooter></DialogContent></Dialog>}
     </div>
@@ -1299,10 +1301,19 @@ function MukhtarsView({ user }: { user: User }) {
   const [editDistrictId, setEditDistrictId] = useState('')
   const [deleteTarget, setDeleteTarget] = useState<User | null>(null)
 
-  const load = useCallback(() => {
-    api.getAdminDistricts().then((list) => setDistricts(list.map((d) => ({ id: d.id, name: d.name })))).catch(() => toast.error('تعذّر تحميل الأحياء'))
-    api.getMunicipalities().then((list) => setMunicipalities(list.map((m) => ({ id: m.id, name: m.name })))).catch(() => {})
-    api.getMukhtars().then((list) => setMukhtars(list.map(toUser))).catch(() => toast.error('تعذّر تحميل المختارين'))
+  const load = useCallback(async () => {
+    try {
+      const [districtList, municipalityList, mukhtarList] = await Promise.all([
+        api.getAdminDistricts(),
+        api.getMunicipalities(),
+        api.getMukhtars(),
+      ])
+      setDistricts(districtList.map((d) => ({ id: d.id, name: d.name })))
+      setMunicipalities(municipalityList.map((m) => ({ id: m.id, name: m.name })))
+      setMukhtars(mukhtarList.map(toUser))
+    } catch {
+      toast.error('تعذّر تحميل بيانات المختارين')
+    }
   }, [])
 
   useEffect(() => { load() }, [load])
@@ -1312,9 +1323,10 @@ function MukhtarsView({ user }: { user: User }) {
     setSubmitting(true)
     try {
       const savedUsername = username.trim(); const savedPassword = password
-      const created = await api.createMukhtar({ full_name: fullName.trim(), username: savedUsername, password: savedPassword, district_id: districtId })
+      await api.createMukhtar({ full_name: fullName.trim(), username: savedUsername, password: savedPassword, district_id: districtId })
       setCreatedCredentials({ username: savedUsername, password: savedPassword })
-      setMukhtars((prev) => [toUser(created), ...prev])
+      await new Promise((r) => setTimeout(r, 150))
+      await load()
       setFullName(''); setUsername(''); setPassword(''); setDistrictId(''); setShowForm(false)
       toast.success('تم إنشاء حساب المختار')
     } catch (e: any) { toast.error(e.message || 'فشل إنشاء الحساب') } finally { setSubmitting(false) }
@@ -1347,7 +1359,7 @@ function MukhtarsView({ user }: { user: User }) {
     if (!deleteTarget) return
     try {
       await api.deleteAdminUser(deleteTarget.id)
-      setMukhtars((prev) => prev.filter((item) => item.id !== deleteTarget.id))
+      await load()
       setDeleteTarget(null)
       toast.success('تم حذف/تعطيل الحساب')
     } catch (e: any) { toast.error(e.message || 'تعذّر حذف الحساب') }
@@ -1360,7 +1372,7 @@ function MukhtarsView({ user }: { user: User }) {
       <div className="flex items-center justify-between"><h2 className="text-xl font-semibold">مخاتير الأحياء</h2><Button onClick={() => setShowForm(true)} size="sm"><Plus className="ml-2" size={16} />إنشاء حساب مختار</Button></div>
       {createdCredentials && <Card className="border-green-500/40 bg-green-50 dark:bg-green-950/20"><CardContent className="pt-4"><p className="font-semibold text-green-700 dark:text-green-400 mb-2">تم إنشاء الحساب بنجاح – احفظ بيانات الدخول الآن</p><div className="space-y-2 text-sm"><div className="flex items-center gap-2"><span className="text-muted-foreground w-28">اسم المستخدم:</span><span className="font-mono font-bold">{createdCredentials.username}</span><Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={() => copyCredentials(createdCredentials.username)}>نسخ</Button></div><div className="flex items-center gap-2"><span className="text-muted-foreground w-28">كلمة المرور:</span><span className="font-mono font-bold">{createdCredentials.password}</span><Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={() => copyCredentials(createdCredentials.password)}>نسخ</Button></div></div></CardContent></Card>}
       {showForm && <Card className="border-primary/30"><CardHeader><CardTitle className="text-base">بيانات المختار الجديد</CardTitle></CardHeader><CardContent className="space-y-3"><div className="space-y-1"><Label>الاسم الكامل</Label><Input value={fullName} onChange={(e) => setFullName(e.target.value)} dir="rtl" /></div><div className="space-y-1"><Label>اسم المستخدم</Label><Input value={username} onChange={(e) => setUsername(e.target.value)} dir="ltr" /></div><div className="space-y-1"><Label>كلمة المرور</Label><Input value={password} onChange={(e) => setPassword(e.target.value)} type="text" dir="ltr" /></div><div className="space-y-1"><Label>الحي</Label><Select value={districtId} onValueChange={setDistrictId}><SelectTrigger dir="rtl"><SelectValue placeholder="اختر الحي" /></SelectTrigger><SelectContent>{districts.map((d) => <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>)}</SelectContent></Select></div><div className="flex gap-2"><Button onClick={handleCreate} disabled={submitting}>حفظ</Button><Button variant="outline" onClick={() => setShowForm(false)}>إلغاء</Button></div></CardContent></Card>}
-      <Card><CardContent className="pt-4">{mukhtars.length === 0 ? <EmptyState title="لا يوجد مخاتير بعد" description="أنشئ أول حساب مختار لتمكين إدارة الطلبات على مستوى الأحياء." actionLabel="إنشاء مختار" onAction={() => setShowForm(true)} /> : <Table><TableHeader><TableRow><TableHead>الاسم</TableHead><TableHead>اسم المستخدم</TableHead><TableHead>الحي</TableHead><TableHead>البلدية</TableHead><TableHead>الحالة</TableHead><TableHead>تاريخ الإنشاء</TableHead><TableHead>إجراءات</TableHead></TableRow></TableHeader><TableBody>{mukhtars.map((m) => <TableRow key={m.id}><TableCell>{m.fullName}</TableCell><TableCell dir="ltr">{m.username}</TableCell><TableCell>{districts.find((d) => d.id === m.districtId)?.name || '—'}</TableCell><TableCell>{municipalities.find((mu) => mu.id === m.municipalityId)?.name || '—'}</TableCell><TableCell><Badge variant={m.isActive ? 'default' : 'secondary'}>{m.isActive ? 'مفعّل' : 'معطّل'}</Badge></TableCell><TableCell>{m.createdAt ? new Date(m.createdAt).toLocaleDateString('ar-EG') : '—'}</TableCell><TableCell><div className="flex gap-2"><Switch checked={m.isActive} onCheckedChange={() => toggleActive(m)} /><Button size="sm" variant="outline" onClick={() => { setEditing(m); setEditFullName(m.fullName); setEditUsername(m.username); setEditDistrictId(m.districtId || '') }}>تعديل</Button><Button size="sm" variant="destructive" onClick={() => setDeleteTarget(m)}>حذف</Button></div></TableCell></TableRow>)}</TableBody></Table>}</CardContent></Card>
+      <Card><CardContent className="pt-4">{mukhtars.length === 0 ? <EmptyState title="لا يوجد مخاتير بعد" description="أنشئ أول حساب مختار لتمكين إدارة الطلبات على مستوى الأحياء." actionLabel="إنشاء مختار" onAction={() => setShowForm(true)} /> : <Table><TableHeader><TableRow><TableHead>الاسم</TableHead><TableHead>اسم المستخدم</TableHead><TableHead>الدور</TableHead><TableHead>الحي</TableHead><TableHead>البلدية</TableHead><TableHead>الحالة</TableHead><TableHead>تاريخ الإنشاء</TableHead><TableHead>إجراءات</TableHead></TableRow></TableHeader><TableBody>{mukhtars.map((m) => <TableRow key={m.id}><TableCell>{m.fullName}</TableCell><TableCell dir="ltr">{m.username}</TableCell><TableCell>مختار</TableCell><TableCell>{districts.find((d) => d.id === m.districtId)?.name || '—'}</TableCell><TableCell>{municipalities.find((mu) => mu.id === m.municipalityId)?.name || '—'}</TableCell><TableCell><Badge variant={m.isActive ? 'default' : 'secondary'}>{m.isActive ? 'مفعّل' : 'معطّل'}</Badge></TableCell><TableCell>{m.createdAt ? new Date(m.createdAt).toLocaleDateString('ar-EG') : '—'}</TableCell><TableCell><div className="flex gap-2"><Switch checked={m.isActive} onCheckedChange={() => toggleActive(m)} /><Button size="sm" variant="outline" onClick={() => { setEditing(m); setEditFullName(m.fullName); setEditUsername(m.username); setEditDistrictId(m.districtId || '') }}>تعديل</Button><Button size="sm" variant="destructive" onClick={() => setDeleteTarget(m)}>حذف</Button></div></TableCell></TableRow>)}</TableBody></Table>}</CardContent></Card>
       {editing && <Dialog open={!!editing} onOpenChange={() => setEditing(null)}><DialogContent className="max-w-md"><DialogHeader><DialogTitle>تعديل المختار</DialogTitle></DialogHeader><div className="space-y-2"><Input value={editFullName} onChange={(e) => setEditFullName(e.target.value)} dir="rtl" /><Input value={editUsername} onChange={(e) => setEditUsername(e.target.value)} dir="ltr" /><Select value={editDistrictId} onValueChange={setEditDistrictId}><SelectTrigger><SelectValue placeholder="اختر الحي" /></SelectTrigger><SelectContent>{districts.map((d) => <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>)}</SelectContent></Select></div><DialogFooter><Button variant="outline" onClick={() => setEditing(null)}>إلغاء</Button><Button onClick={handleSaveEdit}>حفظ</Button></DialogFooter></DialogContent></Dialog>}
       {deleteTarget && <Dialog open={!!deleteTarget} onOpenChange={() => setDeleteTarget(null)}><DialogContent className="max-w-md"><DialogHeader><DialogTitle>تأكيد الحذف</DialogTitle></DialogHeader><p className="text-sm text-muted-foreground">سيتم حذف الحساب إن كان آمناً، أو تعطيله تلقائياً إذا كان مرتبطاً بسجل عمليات.</p><DialogFooter><Button variant="outline" onClick={() => setDeleteTarget(null)}>إلغاء</Button><Button variant="destructive" onClick={removeMukhtar}>تأكيد</Button></DialogFooter></DialogContent></Dialog>}
     </div>
@@ -1995,6 +2007,75 @@ function MonthlyReportsView({ user }: { user: User }) {
 
 // ─── Main AdminDashboard ──────────────────────────────────────────────────────
 
+function NotificationCenter() {
+  const [open, setOpen] = useState(false)
+  const [items, setItems] = useState<NotificationOut[]>([])
+  const [unreadOnly, setUnreadOnly] = useState(false)
+
+  const load = useCallback(async () => {
+    try {
+      await api.generatePerformanceAlerts()
+      const list = await api.getNotifications({ unread_only: unreadOnly, limit: 100 })
+      setItems(list)
+    } catch {
+      // no-op
+    }
+  }, [unreadOnly])
+
+  useEffect(() => { if (open) load() }, [open, load])
+  useEffect(() => { load() }, [load])
+
+  const unreadCount = items.filter((n) => !n.is_read).length
+
+  const markRead = async (id: string) => {
+    await api.markNotificationRead(id)
+    setItems((prev) => prev.map((n) => n.id === id ? { ...n, is_read: true } : n))
+  }
+
+  const markAll = async () => {
+    await api.markAllNotificationsRead()
+    setItems((prev) => prev.map((n) => ({ ...n, is_read: true })))
+  }
+
+  return (
+    <>
+      <Button variant="outline" size="sm" onClick={() => setOpen(true)} className="relative">
+        <Bell size={16} className="ml-2" />
+        التنبيهات
+        {unreadCount > 0 && <span className="absolute -top-2 -left-2 rounded-full bg-destructive text-white text-[10px] px-1.5 py-0.5">{unreadCount}</span>}
+      </Button>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader><DialogTitle>مركز التنبيهات</DialogTitle></DialogHeader>
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <Switch id="unread_only" checked={unreadOnly} onCheckedChange={setUnreadOnly} />
+              <Label htmlFor="unread_only">غير المقروء فقط</Label>
+            </div>
+            <Button variant="ghost" size="sm" onClick={markAll}>تعيين الكل كمقروء</Button>
+          </div>
+          <div className="max-h-[55vh] overflow-auto space-y-2">
+            {items.length === 0 ? (
+              <div className="text-sm text-muted-foreground border rounded-md p-6 text-center">لا توجد تنبيهات حالياً</div>
+            ) : items.map((n) => (
+              <div key={n.id} className={`border rounded-md p-3 ${n.is_read ? 'opacity-70' : 'bg-muted/30'}`}>
+                <div className="flex justify-between items-start gap-2">
+                  <div>
+                    <p className="font-semibold text-sm">{n.title}</p>
+                    <p className="text-sm">{n.message}</p>
+                    <p className="text-xs text-muted-foreground mt-1">{new Date(n.created_at).toLocaleString('ar-EG')}</p>
+                  </div>
+                  {!n.is_read && <Button size="sm" variant="outline" onClick={() => markRead(n.id)}>تمت القراءة</Button>}
+                </div>
+              </div>
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
+  )
+}
+
 export function AdminDashboard({ user, onLogout }: AdminDashboardProps) {
   const isGovernor = user.role === 'governor'
   const isMayor = user.role === 'mayor'
@@ -2021,10 +2102,13 @@ export function AdminDashboard({ user, onLogout }: AdminDashboardProps) {
               <h1 className="text-2xl font-bold">الإدارة</h1>
               <p className="text-sm text-muted-foreground">{user.fullName}</p>
             </div>
-            <Button variant="outline" onClick={onLogout}>
-              <SignOut className="ml-2" />
-              تسجيل الخروج
-            </Button>
+            <div className="flex items-center gap-2">
+              <NotificationCenter />
+              <Button variant="outline" onClick={onLogout}>
+                <SignOut className="ml-2" />
+                تسجيل الخروج
+              </Button>
+            </div>
           </div>
         </div>
 

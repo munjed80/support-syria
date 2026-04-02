@@ -275,6 +275,18 @@ export interface AccountabilityReport {
   top_teams: AccountabilityEntity[]
   top_delayed_entities: AccountabilityEntity[]
 }
+export interface NotificationOut {
+  id: string
+  kind: string
+  severity: 'info' | 'warning' | 'success' | 'error' | string
+  title: string
+  message: string
+  related_entity_type?: string
+  related_entity_id?: string
+  is_read: boolean
+  created_at: string
+  read_at?: string
+}
 
 // ─── Dashboard response shapes (one per role) ─────────────────────────────────
 
@@ -340,11 +352,6 @@ export interface StatusUpdateRequest {
   status: string
   rejection_reason?: string
   completion_photo_url?: string
-  completion_note?: string
-  is_archived: boolean
-  archived_at?: string
-  archived_by_user_id?: string
-  archive_note?: string
   note?: string
 }
 
@@ -900,6 +907,25 @@ class ApiClient {
     const p = new URLSearchParams()
     Object.entries(params).forEach(([k, v]) => { if (v !== undefined && v !== null) p.set(k, String(v)) })
     return `${BASE_URL}/admin/exports/${dataset}${p.toString() ? `?${p.toString()}` : ''}`
+  }
+
+  async getNotifications(params: { unread_only?: boolean; limit?: number } = {}): Promise<NotificationOut[]> {
+    const p = new URLSearchParams()
+    if (params.unread_only) p.set('unread_only', 'true')
+    if (params.limit) p.set('limit', String(params.limit))
+    return this.request<NotificationOut[]>(`/admin/notifications${p.toString() ? `?${p.toString()}` : ''}`)
+  }
+
+  async markNotificationRead(id: string): Promise<void> {
+    return this.request<void>(`/admin/notifications/${id}/read`, { method: 'POST' })
+  }
+
+  async markAllNotificationsRead(): Promise<void> {
+    return this.request<void>('/admin/notifications/read-all', { method: 'POST' })
+  }
+
+  async generatePerformanceAlerts(): Promise<void> {
+    return this.request<void>('/admin/notifications/generate-alerts', { method: 'POST' })
   }
 
 }
