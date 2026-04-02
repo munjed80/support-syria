@@ -61,18 +61,38 @@ function MunicipalitiesView({ user }: { user: User }) {
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const [munList, districtList, mayorsList, requestsList] = await Promise.all([
+      const [munResult, districtResult, mayorsResult, requestsResult] = await Promise.allSettled([
         api.getMunicipalities(),
         api.getAdminDistricts(),
         api.getMayors(),
         api.getRequests({ page: 1, page_size: 500 }),
       ])
-      setMunicipalities(munList.map(toMunicipality))
-      setDistricts(districtList.map(toDistrict))
-      setMayors(mayorsList.map(toUser))
-      setRequests(requestsList.items.map(toServiceRequest))
+
+      if (munResult.status === 'fulfilled') {
+        setMunicipalities(munResult.value.map(toMunicipality))
+      } else {
+        throw new Error('municipalities_failed')
+      }
+
+      if (districtResult.status === 'fulfilled') {
+        setDistricts(districtResult.value.map(toDistrict))
+      } else {
+        setDistricts([])
+      }
+
+      if (mayorsResult.status === 'fulfilled') {
+        setMayors(mayorsResult.value.map(toUser))
+      } else {
+        setMayors([])
+      }
+
+      if (requestsResult.status === 'fulfilled') {
+        setRequests(requestsResult.value.items.map(toServiceRequest))
+      } else {
+        setRequests([])
+      }
     } catch {
-      toast.error('تعذّر تحميل بيانات البلديات')
+      toast.error('تعذّر تحميل قائمة البلديات')
     } finally {
       setLoading(false)
     }
@@ -271,16 +291,31 @@ function DistrictsView({ user }: { user: User }) {
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const [districtList, mukhtarList, reqList] = await Promise.all([
+      const [districtResult, mukhtarResult, requestsResult] = await Promise.allSettled([
         api.getAdminDistricts(),
         api.getMukhtars(),
         api.getRequests({ page: 1, page_size: 500 }),
       ])
-      setDistricts(districtList.map(toDistrict))
-      setMukhtars(mukhtarList.map(toUser))
-      setRequests(reqList.items.map(toServiceRequest))
+
+      if (districtResult.status === 'fulfilled') {
+        setDistricts(districtResult.value.map(toDistrict))
+      } else {
+        throw new Error('districts_failed')
+      }
+
+      if (mukhtarResult.status === 'fulfilled') {
+        setMukhtars(mukhtarResult.value.map(toUser))
+      } else {
+        setMukhtars([])
+      }
+
+      if (requestsResult.status === 'fulfilled') {
+        setRequests(requestsResult.value.items.map(toServiceRequest))
+      } else {
+        setRequests([])
+      }
     } catch {
-      toast.error('تعذّر تحميل الأحياء')
+      toast.error('تعذّر تحميل قائمة الأحياء')
     } finally {
       setLoading(false)
     }
@@ -1286,8 +1321,8 @@ function MayorsView({ user }: { user: User }) {
 
 function MukhtarsView({ user }: { user: User }) {
   const [districts, setDistricts] = useState<{ id: string; name: string }[]>([])
-  const [municipalities, setMunicipalities] = useState<{ id: string; name: string }[]>([])
   const [mukhtars, setMukhtars] = useState<User[]>([])
+  const [loading, setLoading] = useState(false)
   const [showForm, setShowForm] = useState(false)
   const [fullName, setFullName] = useState('')
   const [username, setUsername] = useState('')
@@ -1302,17 +1337,28 @@ function MukhtarsView({ user }: { user: User }) {
   const [deleteTarget, setDeleteTarget] = useState<User | null>(null)
 
   const load = useCallback(async () => {
+    setLoading(true)
     try {
-      const [districtList, municipalityList, mukhtarList] = await Promise.all([
+      const [districtResult, mukhtarResult] = await Promise.allSettled([
         api.getAdminDistricts(),
-        api.getMunicipalities(),
         api.getMukhtars(),
       ])
-      setDistricts(districtList.map((d) => ({ id: d.id, name: d.name })))
-      setMunicipalities(municipalityList.map((m) => ({ id: m.id, name: m.name })))
-      setMukhtars(mukhtarList.map(toUser))
+
+      if (districtResult.status === 'fulfilled') {
+        setDistricts(districtResult.value.map((d) => ({ id: d.id, name: d.name })))
+      } else {
+        throw new Error('districts_failed')
+      }
+
+      if (mukhtarResult.status === 'fulfilled') {
+        setMukhtars(mukhtarResult.value.map(toUser))
+      } else {
+        setMukhtars([])
+      }
     } catch {
       toast.error('تعذّر تحميل بيانات المختارين')
+    } finally {
+      setLoading(false)
     }
   }, [])
 
@@ -1372,7 +1418,7 @@ function MukhtarsView({ user }: { user: User }) {
       <div className="flex items-center justify-between"><h2 className="text-xl font-semibold">مخاتير الأحياء</h2><Button onClick={() => setShowForm(true)} size="sm"><Plus className="ml-2" size={16} />إنشاء حساب مختار</Button></div>
       {createdCredentials && <Card className="border-green-500/40 bg-green-50 dark:bg-green-950/20"><CardContent className="pt-4"><p className="font-semibold text-green-700 dark:text-green-400 mb-2">تم إنشاء الحساب بنجاح – احفظ بيانات الدخول الآن</p><div className="space-y-2 text-sm"><div className="flex items-center gap-2"><span className="text-muted-foreground w-28">اسم المستخدم:</span><span className="font-mono font-bold">{createdCredentials.username}</span><Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={() => copyCredentials(createdCredentials.username)}>نسخ</Button></div><div className="flex items-center gap-2"><span className="text-muted-foreground w-28">كلمة المرور:</span><span className="font-mono font-bold">{createdCredentials.password}</span><Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={() => copyCredentials(createdCredentials.password)}>نسخ</Button></div></div></CardContent></Card>}
       {showForm && <Card className="border-primary/30"><CardHeader><CardTitle className="text-base">بيانات المختار الجديد</CardTitle></CardHeader><CardContent className="space-y-3"><div className="space-y-1"><Label>الاسم الكامل</Label><Input value={fullName} onChange={(e) => setFullName(e.target.value)} dir="rtl" /></div><div className="space-y-1"><Label>اسم المستخدم</Label><Input value={username} onChange={(e) => setUsername(e.target.value)} dir="ltr" /></div><div className="space-y-1"><Label>كلمة المرور</Label><Input value={password} onChange={(e) => setPassword(e.target.value)} type="text" dir="ltr" /></div><div className="space-y-1"><Label>الحي</Label><Select value={districtId} onValueChange={setDistrictId}><SelectTrigger dir="rtl"><SelectValue placeholder="اختر الحي" /></SelectTrigger><SelectContent>{districts.map((d) => <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>)}</SelectContent></Select></div><div className="flex gap-2"><Button onClick={handleCreate} disabled={submitting}>حفظ</Button><Button variant="outline" onClick={() => setShowForm(false)}>إلغاء</Button></div></CardContent></Card>}
-      <Card><CardContent className="pt-4">{mukhtars.length === 0 ? <EmptyState title="لا يوجد مخاتير بعد" description="أنشئ أول حساب مختار لتمكين إدارة الطلبات على مستوى الأحياء." actionLabel="إنشاء مختار" onAction={() => setShowForm(true)} /> : <Table><TableHeader><TableRow><TableHead>الاسم</TableHead><TableHead>اسم المستخدم</TableHead><TableHead>الدور</TableHead><TableHead>الحي</TableHead><TableHead>البلدية</TableHead><TableHead>الحالة</TableHead><TableHead>تاريخ الإنشاء</TableHead><TableHead>إجراءات</TableHead></TableRow></TableHeader><TableBody>{mukhtars.map((m) => <TableRow key={m.id}><TableCell>{m.fullName}</TableCell><TableCell dir="ltr">{m.username}</TableCell><TableCell>مختار</TableCell><TableCell>{districts.find((d) => d.id === m.districtId)?.name || '—'}</TableCell><TableCell>{municipalities.find((mu) => mu.id === m.municipalityId)?.name || '—'}</TableCell><TableCell><Badge variant={m.isActive ? 'default' : 'secondary'}>{m.isActive ? 'مفعّل' : 'معطّل'}</Badge></TableCell><TableCell>{m.createdAt ? new Date(m.createdAt).toLocaleDateString('ar-EG') : '—'}</TableCell><TableCell><div className="flex gap-2"><Switch checked={m.isActive} onCheckedChange={() => toggleActive(m)} /><Button size="sm" variant="outline" onClick={() => { setEditing(m); setEditFullName(m.fullName); setEditUsername(m.username); setEditDistrictId(m.districtId || '') }}>تعديل</Button><Button size="sm" variant="destructive" onClick={() => setDeleteTarget(m)}>حذف</Button></div></TableCell></TableRow>)}</TableBody></Table>}</CardContent></Card>
+      <Card><CardContent className="pt-4">{loading ? <p className="text-center text-muted-foreground py-8">جارٍ التحميل...</p> : mukhtars.length === 0 ? <EmptyState title="لا يوجد مخاتير بعد" description="أنشئ أول حساب مختار لتمكين إدارة الطلبات على مستوى الأحياء." actionLabel="إنشاء مختار" onAction={() => setShowForm(true)} /> : <Table><TableHeader><TableRow><TableHead>الاسم</TableHead><TableHead>اسم المستخدم</TableHead><TableHead>الدور</TableHead><TableHead>الحي</TableHead><TableHead>البلدية</TableHead><TableHead>الحالة</TableHead><TableHead>تاريخ الإنشاء</TableHead><TableHead>إجراءات</TableHead></TableRow></TableHeader><TableBody>{mukhtars.map((m) => <TableRow key={m.id}><TableCell>{m.fullName}</TableCell><TableCell dir="ltr">{m.username}</TableCell><TableCell>مختار</TableCell><TableCell>{districts.find((d) => d.id === m.districtId)?.name || '—'}</TableCell><TableCell>{user.municipalityId ? 'بلديتي' : '—'}</TableCell><TableCell><Badge variant={m.isActive ? 'default' : 'secondary'}>{m.isActive ? 'مفعّل' : 'معطّل'}</Badge></TableCell><TableCell>{m.createdAt ? new Date(m.createdAt).toLocaleDateString('ar-EG') : '—'}</TableCell><TableCell><div className="flex gap-2"><Switch checked={m.isActive} onCheckedChange={() => toggleActive(m)} /><Button size="sm" variant="outline" onClick={() => { setEditing(m); setEditFullName(m.fullName); setEditUsername(m.username); setEditDistrictId(m.districtId || '') }}>تعديل</Button><Button size="sm" variant="destructive" onClick={() => setDeleteTarget(m)}>حذف</Button></div></TableCell></TableRow>)}</TableBody></Table>}</CardContent></Card>
       {editing && <Dialog open={!!editing} onOpenChange={() => setEditing(null)}><DialogContent className="max-w-md"><DialogHeader><DialogTitle>تعديل المختار</DialogTitle></DialogHeader><div className="space-y-2"><Input value={editFullName} onChange={(e) => setEditFullName(e.target.value)} dir="rtl" /><Input value={editUsername} onChange={(e) => setEditUsername(e.target.value)} dir="ltr" /><Select value={editDistrictId} onValueChange={setEditDistrictId}><SelectTrigger><SelectValue placeholder="اختر الحي" /></SelectTrigger><SelectContent>{districts.map((d) => <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>)}</SelectContent></Select></div><DialogFooter><Button variant="outline" onClick={() => setEditing(null)}>إلغاء</Button><Button onClick={handleSaveEdit}>حفظ</Button></DialogFooter></DialogContent></Dialog>}
       {deleteTarget && <Dialog open={!!deleteTarget} onOpenChange={() => setDeleteTarget(null)}><DialogContent className="max-w-md"><DialogHeader><DialogTitle>تأكيد الحذف</DialogTitle></DialogHeader><p className="text-sm text-muted-foreground">سيتم حذف الحساب إن كان آمناً، أو تعطيله تلقائياً إذا كان مرتبطاً بسجل عمليات.</p><DialogFooter><Button variant="outline" onClick={() => setDeleteTarget(null)}>إلغاء</Button><Button variant="destructive" onClick={removeMukhtar}>تأكيد</Button></DialogFooter></DialogContent></Dialog>}
     </div>
