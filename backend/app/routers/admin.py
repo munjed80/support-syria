@@ -196,7 +196,7 @@ def _generate_complaint_number(db: Session, district: District) -> str:
     """Generate a unique numeric-only complaint number (zero-padded 6-digit sequence)."""
     from sqlalchemy import func, cast, Integer
 
-    # Find the current max numeric complaint number
+    # Find the current max numeric complaint number (PostgreSQL regex operator)
     max_num = (
         db.query(func.max(cast(ServiceRequest.complaint_number, Integer)))
         .filter(ServiceRequest.complaint_number.op("~")(r"^\d+$"))

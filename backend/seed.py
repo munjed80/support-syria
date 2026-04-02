@@ -64,8 +64,8 @@ def _ensure_initial_users(db, gov, mun, districts):
     ]
 
     # Only seed mayor/mukhtar accounts if a municipality and districts exist
-    if mun and districts:
-        mezzeh = districts[1] if len(districts) > 1 else districts[0]
+    if mun and len(districts) >= 2:
+        mezzeh = districts[1]  # المزة is the second seeded district
         initial_users.append({
             "username": "mayor_damascus",
             "password": "password123",
@@ -85,8 +85,8 @@ def _ensure_initial_users(db, gov, mun, districts):
             "district_id": mezzeh.id,
         })
 
-        if not IS_PRODUCTION:
-            # Development-only accounts
+        if not IS_PRODUCTION and len(districts) >= 4:
+            # Development-only accounts (require at least 4 districts)
             initial_users += [
                 {
                     "username": "mukhtar_damar",
