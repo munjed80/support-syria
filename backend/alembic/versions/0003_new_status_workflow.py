@@ -36,6 +36,9 @@ def upgrade() -> None:
         "('new', 'under_review', 'in_progress', 'resolved', 'rejected', 'deferred')"
     )
 
+    # Drop default before ALTER COLUMN TYPE (default references the old enum type)
+    op.execute("ALTER TABLE service_requests ALTER COLUMN status DROP DEFAULT")
+
     # Migrate service_requests.status
     op.execute(
         "ALTER TABLE service_requests "
@@ -48,6 +51,9 @@ def upgrade() -> None:
         "  WHEN 'rejected'   THEN 'rejected'::request_status "
         "  ELSE 'new'::request_status END"
     )
+
+    # Re-apply default with new enum value
+    op.execute("ALTER TABLE service_requests ALTER COLUMN status SET DEFAULT 'new'::request_status")
 
     # Migrate request_updates.from_status
     op.execute(
@@ -85,6 +91,9 @@ def upgrade() -> None:
         "CREATE TYPE attachment_kind AS ENUM ('before', 'after', 'other')"
     )
 
+    # Drop default before ALTER COLUMN TYPE (default references the old enum type)
+    op.execute("ALTER TABLE attachments ALTER COLUMN kind DROP DEFAULT")
+
     op.execute(
         "ALTER TABLE attachments "
         "ALTER COLUMN kind TYPE attachment_kind "
@@ -93,6 +102,9 @@ def upgrade() -> None:
         "  WHEN 'document' THEN 'other'::attachment_kind "
         "  ELSE 'other'::attachment_kind END"
     )
+
+    # Re-apply default with new enum value
+    op.execute("ALTER TABLE attachments ALTER COLUMN kind SET DEFAULT 'other'::attachment_kind")
 
     op.execute("DROP TYPE attachment_kind_old")
 

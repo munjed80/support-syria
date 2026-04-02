@@ -210,7 +210,7 @@ cp .env.production.example .env
 # python3 -c "import secrets; print(secrets.token_hex(32))"
 
 # 3. بناء الواجهة الأمامية
-npm install
+npm install --legacy-peer-deps
 npm run build
 # يُنشئ مجلد dist/ الذي يخدمه Nginx
 
@@ -220,40 +220,43 @@ docker compose -f docker-compose.prod.yml up --build -d
 # 5. التحقق من التشغيل
 docker compose -f docker-compose.prod.yml logs -f
 # يجب أن ترى: "Application startup complete"
-# الموقع يعمل على: http://YOUR_SERVER_IP (أو الدومين)
+```
+
+### حسابات الإنتاج الافتراضية
+
+عند النشر على قاعدة بيانات فارغة، يُنشئ النظام تلقائياً الحسابات التالية:
+
+| الدور | اسم المستخدم | كلمة المرور |
+|-------|-------------|-------------|
+| **محافظ** | `gov_damascus` | `password123` |
+| **رئيس البلدية** | `mayor_damascus` | `password123` |
+| **مختار المزة** | `mukhtar_mezzeh` | `password123` |
+
+> ⚠️ **تحذير**: غيّر كلمات المرور فوراً بعد أول تسجيل دخول.
+
+### التحقق بعد النشر
+
+| العنوان | النتيجة المتوقعة |
+|---------|-----------------|
+| `https://yourdomain.com/` | الواجهة الأمامية (صفحة تسجيل الدخول) |
+| `https://yourdomain.com/api/openapi.json` | مستند OpenAPI JSON |
+| `https://yourdomain.com/api/docs` | واجهة Swagger التفاعلية |
+| تسجيل الدخول بـ `gov_damascus` / `password123` | لوحة تحكم المحافظ |
+
+### إعادة النشر بعد تحديث الكود
+
+```bash
+cd support-syria
+git pull
+npm install --legacy-peer-deps
+npm run build
+docker compose -f docker-compose.prod.yml up --build -d
 ```
 
 ### ملاحظات إنتاجية
 - **لا يتم كشف PostgreSQL** خارج شبكة Docker (بدون port mapping)
-- **لا يتم إنشاء مستخدمين تجريبيين** – أنشئ المستخدمين يدوياً بعد النشر
-- **Nginx** يخدم الواجهة الأمامية ويوجّه `/api/*` إلى FastAPI
-- لإضافة HTTPS، استخدم Certbot أو ضع Nginx خلف reverse proxy مع SSL
-
-### إضافة أول مستخدم في الإنتاج
-
-```bash
-docker compose -f docker-compose.prod.yml exec backend python -c "
-from app.database import SessionLocal
-from app.auth import hash_password
-from app.models import User, Governorate
-
-db = SessionLocal()
-gov = db.query(Governorate).first()
-user = User(
-    username='admin',
-    full_name='المسؤول',
-    password_hash=hash_password('CHANGE_THIS_PASSWORD'),
-    role='governor',
-    governorate_id=gov.id,
-    is_active=True,
-    must_change_password=True,
-)
-db.add(user)
-db.commit()
-print('✅ User created')
-db.close()
-"
-```
+- **Nginx** يخدم الواجهة الأمامية من `dist/` ويوجّه `/api/*` إلى FastAPI
+- لإضافة HTTPS، استخدم Certbot أو ضع Nginx خلف reverse proxy مع SSL (مثل Cloudflare)
 
 ---
 
