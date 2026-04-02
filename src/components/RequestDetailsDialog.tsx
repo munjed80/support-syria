@@ -77,12 +77,12 @@ export function RequestDetailsDialog({ request, open, onOpenChange, currentUser,
         })
         .catch(() => {})
 
-      if (currentUser.role === 'district_admin' || currentUser.role === 'municipal_admin') {
+      if (currentUser.role === 'mayor' || currentUser.role === 'district_admin' || currentUser.role === 'municipal_admin') {
         api.getStaff(request.districtId)
           .then((list) => setStaffMembers(list.map(u => ({ id: String(u.id), name: u.full_name }))))
           .catch(() => {})
       }
-      if (currentUser.role === 'mayor' || currentUser.role === 'governor') {
+      if (currentUser.role === 'mayor') {
         api.getTeams()
           .then((list) => setTeams(list.map(toMunicipalTeam)))
           .catch(() => {})
@@ -386,7 +386,8 @@ export function RequestDetailsDialog({ request, open, onOpenChange, currentUser,
                 <Printer size={16} />
                 طباعة الشكوى
               </Button>
-              {['resolved', 'rejected', 'deferred'].includes(displayRequest.status) && (
+              {['resolved', 'rejected', 'deferred'].includes(displayRequest.status) &&
+                ['governor', 'mayor', 'municipal_admin'].includes(currentUser.role) && (
                 <Button variant="outline" size="sm" onClick={handleArchiveToggle} disabled={saving}>
                   {displayRequest.isArchived ? 'إلغاء الأرشفة' : 'أرشفة'}
                 </Button>
@@ -462,14 +463,22 @@ export function RequestDetailsDialog({ request, open, onOpenChange, currentUser,
           )}
 
           {displayRequest.responsibleTeam && (
-            <div>
-              <h4 className="font-semibold text-sm text-muted-foreground mb-1">الفريق المسؤول</h4>
-              <Badge variant="outline">{displayRequest.responsibleTeamName ?? displayRequest.responsibleTeam}</Badge>
-              {(displayRequest.responsibleTeamLeaderName || displayRequest.responsibleTeamLeaderPhone) && (
-                <p className="text-sm text-muted-foreground mt-2">
-                  {displayRequest.responsibleTeamLeaderName ?? '—'} — {displayRequest.responsibleTeamLeaderPhone ?? '—'}
-                </p>
-              )}
+            <div className="rounded-lg border p-4 bg-muted/10 space-y-2">
+              <h4 className="font-semibold text-sm">الفريق المسؤول</h4>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div>
+                  <p className="text-xs text-muted-foreground">اسم الفريق</p>
+                  <Badge variant="outline" className="mt-1">{displayRequest.responsibleTeamName ?? displayRequest.responsibleTeam}</Badge>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">اسم القائد</p>
+                  <p className="text-sm font-medium mt-1">{displayRequest.responsibleTeamLeaderName ?? '—'}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">هاتف القائد</p>
+                  <p className="text-sm font-medium mt-1 font-mono" dir="ltr">{displayRequest.responsibleTeamLeaderPhone ?? '—'}</p>
+                </div>
+              </div>
             </div>
           )}
 
@@ -485,8 +494,7 @@ export function RequestDetailsDialog({ request, open, onOpenChange, currentUser,
                       <span>{m.quantity}</span>
                       {m.notes && <span className="text-muted-foreground mr-2">({m.notes})</span>}
                     </span>
-                    {(currentUser.role === 'mayor' || currentUser.role === 'governor' ||
-                      currentUser.role === 'mukhtar' || currentUser.role === 'district_admin' ||
+                    {(currentUser.role === 'mayor' || currentUser.role === 'district_admin' ||
                       currentUser.role === 'municipal_admin') && (
                       <Button
                         variant="ghost"
@@ -511,33 +519,37 @@ export function RequestDetailsDialog({ request, open, onOpenChange, currentUser,
             <div className="space-y-4 border rounded-lg p-4 bg-muted/20">
               <h3 className="font-semibold text-lg">الإجراءات</h3>
 
-              <div className="space-y-2">
-                <Label>ملاحظة الأرشفة (اختياري)</Label>
-                <Textarea value={archiveNote} onChange={(e) => setArchiveNote(e.target.value)} rows={2} />
-              </div>
-
-              <div className="space-y-2">
-                <Label>تغيير الأولوية</Label>
-                <div className="flex gap-2">
-                  <Select value={newPriority} onValueChange={setNewPriority}>
-                    <SelectTrigger className="flex-1">
-                      <SelectValue placeholder={`الأولوية الحالية: ${PRIORITIES[displayRequest.priority]}`} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {Object.entries(PRIORITIES).map(([key, label]) => (
-                        <SelectItem key={key} value={key}>
-                          {label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <Button onClick={handlePriorityChange} disabled={saving || !newPriority}>
-                    تحديث
-                  </Button>
+              {['governor', 'mayor', 'municipal_admin'].includes(currentUser.role) && (
+                <div className="space-y-2">
+                  <Label>ملاحظة الأرشفة (اختياري)</Label>
+                  <Textarea value={archiveNote} onChange={(e) => setArchiveNote(e.target.value)} rows={2} />
                 </div>
-              </div>
+              )}
 
-              {(currentUser.role === 'mayor' || currentUser.role === 'governor') && (
+              {['mayor', 'municipal_admin', 'district_admin'].includes(currentUser.role) && (
+                <div className="space-y-2">
+                  <Label>تغيير الأولوية</Label>
+                  <div className="flex gap-2">
+                    <Select value={newPriority} onValueChange={setNewPriority}>
+                      <SelectTrigger className="flex-1">
+                        <SelectValue placeholder={`الأولوية الحالية: ${PRIORITIES[displayRequest.priority]}`} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {Object.entries(PRIORITIES).map(([key, label]) => (
+                          <SelectItem key={key} value={key}>
+                            {label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Button onClick={handlePriorityChange} disabled={saving || !newPriority}>
+                      تحديث
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {currentUser.role === 'mayor' && (
                 <div className="space-y-2">
                   <Label>الفريق المسؤول</Label>
                   <div className="flex gap-2">
@@ -564,6 +576,7 @@ export function RequestDetailsDialog({ request, open, onOpenChange, currentUser,
                 </div>
               )}
 
+              {['mayor', 'municipal_admin', 'district_admin'].includes(currentUser.role) && (
               <div className="space-y-2">
                 <Label>إضافة مادة مستخدمة</Label>
                 <div className="grid grid-cols-2 gap-2">
@@ -597,6 +610,7 @@ export function RequestDetailsDialog({ request, open, onOpenChange, currentUser,
                   </Button>
                 </div>
               </div>
+              )}
 
               {!displayRequest.assignedToUserId && staffMembers.length > 0 && (
                 <div className="space-y-2">

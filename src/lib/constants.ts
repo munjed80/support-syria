@@ -221,7 +221,9 @@ export function formatRelativeTime(dateString: string): string {
 }
 
 // Role-based status transitions
-// Each role maps: from_status → allowed to_statuses
+// Governor: supervisory only – can reopen closed/rejected cases
+// Mayor: primary operational owner – full complaint lifecycle
+// Mukhtar: intake – can only advance new complaints to under_review
 export const ROLE_STATUS_TRANSITIONS: Record<string, Partial<Record<RequestStatus, RequestStatus[]>>> = {
   mukhtar: {
     new: ['under_review'],
@@ -230,22 +232,21 @@ export const ROLE_STATUS_TRANSITIONS: Record<string, Partial<Record<RequestStatu
     new: ['under_review'],
   },
   mayor: {
+    new:          ['under_review'],
     under_review: ['in_progress', 'rejected'],
     in_progress:  ['resolved', 'deferred', 'rejected'],
     deferred:     ['in_progress', 'rejected'],
   },
   municipal_admin: {
+    new:          ['under_review'],
     under_review: ['in_progress', 'rejected'],
     in_progress:  ['resolved', 'deferred', 'rejected'],
     deferred:     ['in_progress', 'rejected'],
   },
   governor: {
-    new:          ['under_review', 'in_progress', 'resolved', 'rejected', 'deferred'],
-    under_review: ['in_progress', 'resolved', 'rejected', 'deferred'],
-    in_progress:  ['resolved', 'rejected', 'deferred', 'under_review'],
-    resolved:     ['in_progress', 'rejected'],
+    // Supervisory overrides only – reopen closed/rejected cases
+    resolved:     ['in_progress'],
     rejected:     ['new', 'under_review'],
-    deferred:     ['in_progress', 'under_review', 'rejected'],
   },
   staff: {},
 }
