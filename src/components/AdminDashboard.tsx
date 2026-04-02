@@ -18,7 +18,7 @@ import {
   TableHeader,
   TableRow
 } from '@/components/ui/table'
-import { SignOut, ChartBar, Buildings, Warning, ClipboardText, Plus, MagnifyingGlass, MapPin, Users, CheckCircle, Timer, Wrench, Printer, PencilSimple, CaretDown, DownloadSimple, ArchiveBox, Bell } from '@phosphor-icons/react'
+import { SignOut, ChartBar, Buildings, Warning, ClipboardText, Plus, MagnifyingGlass, MapPin, Users, CheckCircle, Timer, Wrench, Printer, PencilSimple, CaretDown, DownloadSimple, Archive, Bell } from '@phosphor-icons/react'
 import { CATEGORIES, STATUSES, STATUS_COLORS, PRIORITIES, PRIORITY_BADGE_COLORS, RESPONSIBLE_TEAMS, formatRelativeTime, isOverdue } from '@/lib/constants'
 import { RequestDetailsDialog } from '@/components/RequestDetailsDialog'
 import { PrintReport } from '@/components/PrintReport'
@@ -1085,7 +1085,7 @@ function RequestsView({ user }: { user: User }) {
                           {request.trackingCode}
                           {request.isArchived && (
                             <Badge variant="outline" className="mr-2 text-xs">
-                              <ArchiveBox size={12} className="ml-1" />
+                              <Archive size={12} className="ml-1" />
                               مؤرشف
                             </Badge>
                           )}
