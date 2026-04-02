@@ -58,6 +58,8 @@ export function RequestDetailsDialog({ request, open, onOpenChange, currentUser,
   const [newMatNotes, setNewMatNotes] = useState('')
   const [addingMaterial, setAddingMaterial] = useState(false)
 
+  const photoPreviewUrlRef = useRef<string>('')
+
   // Fetch full request details and staff list when dialog opens
   useEffect(() => {
     if (open && request) {
@@ -112,7 +114,6 @@ export function RequestDetailsDialog({ request, open, onOpenChange, currentUser,
   const district = (districts || []).find(d => d.id === displayRequest.districtId)
   const validNextStatuses = getValidNextStatuses(displayRequest.status, currentUser.role)
 
-  const photoPreviewUrlRef = useRef<string>('')
 
   const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
