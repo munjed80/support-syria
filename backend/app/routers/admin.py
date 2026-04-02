@@ -1,3 +1,5 @@
+import csv
+import io
 import os
 import uuid
 from datetime import datetime, timezone
@@ -5,6 +7,7 @@ from typing import Any, Dict, List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
@@ -17,6 +20,7 @@ from app.schemas import (
     AccountabilityReport,
     AccountabilityTopEntity,
     AdminServiceRequestCreate,
+    ArchiveRequest,
     AssignStaffRequest,
     AttachmentOut,
     CreateMayorRequest,
@@ -234,13 +238,8 @@ def delete_municipality(
     ).first()
     if not mun:
         raise HTTPException(status_code=404, detail="Municipality not found")
-    has_districts = db.query(District.id).filter(District.municipality_id == municipality_id).first()
-    has_users = db.query(User.id).filter(User.municipality_id == municipality_id).first()
-    has_requests = db.query(ServiceRequest.id).filter(ServiceRequest.municipality_id == municipality_id).first()
-    if has_districts or has_users or has_requests:
-        raise HTTPException(status_code=409, detail="لا يمكن حذف البلدية لوجود أحياء أو مستخدمين أو شكاوى مرتبطة بها")
-    db.delete(mun)
-    _log(db, current_user.id, "delete_municipality", "municipality", str(municipality_id))
+    mun.is_active = False
+    _log(db, current_user.id, "deactivate_municipality", "municipality", str(municipality_id))
     db.commit()
 
 
@@ -323,12 +322,8 @@ def delete_district(
     ).first()
     if not district:
         raise HTTPException(status_code=404, detail="District not found")
-    has_requests = db.query(ServiceRequest.id).filter(ServiceRequest.district_id == district_id).first()
-    has_users = db.query(User.id).filter(User.district_id == district_id).first()
-    if has_requests or has_users:
-        raise HTTPException(status_code=409, detail="لا يمكن حذف الحي لوجود طلبات أو مستخدمين مرتبطين به")
-    db.delete(district)
-    _log(db, current_user.id, "delete_district", "district", str(district_id))
+    district.is_active = False
+    _log(db, current_user.id, "deactivate_district", "district", str(district_id))
     db.commit()
 
 
@@ -415,11 +410,8 @@ def delete_team(
     ).first()
     if not team:
         raise HTTPException(status_code=404, detail="Municipal team not found")
-    linked_request = db.query(ServiceRequest.id).filter(ServiceRequest.responsible_team_id == team.id).first()
-    if linked_request:
-        raise HTTPException(status_code=409, detail="لا يمكن حذف الفريق لأنه مرتبط بشكاوى")
-    db.delete(team)
-    _log(db, current_user.id, "delete_team", "municipal_team", str(team_id))
+    team.is_active = False
+    _log(db, current_user.id, "deactivate_team", "municipal_team", str(team_id))
     db.commit()
 
 
@@ -896,6 +888,9 @@ def list_requests(
     date_from: Optional[datetime] = Query(None),
     date_to: Optional[datetime] = Query(None),
     search: Optional[str] = Query(None),
+    archived: Optional[bool] = Query(None),
+    archive_month: Optional[int] = Query(None, ge=1, le=12),
+    archive_year: Optional[int] = Query(None, ge=2000, le=2100),
     sort_by: Optional[str] = Query("created_at"),
     sort_dir: Optional[str] = Query("desc"),
     assigned_to_me: Optional[bool] = Query(None),
@@ -959,6 +954,12 @@ def list_requests(
                 ServiceRequest.complaint_number.ilike(term),
             )
         )
+
+    if archived is not None:
+        q = q.filter(ServiceRequest.is_archived == archived)
+    if archive_month and archive_year:
+        start, end_exclusive = _month_range(archive_year, archive_month)
+        q = q.filter(ServiceRequest.closed_at >= start, ServiceRequest.closed_at < end_exclusive)
 
     # Sorting
     sort_column = getattr(ServiceRequest, sort_by, ServiceRequest.created_at)
@@ -1058,6 +1059,7 @@ def create_request(
         actor_name=current_user.name,
         message="تم تسجيل الطلب من قِبل المختار",
         to_status="new",
+        event_type="created",
         is_internal=False,
     ))
     _log(db, current_user.id, "create_request", "service_request", req.id)
@@ -1094,6 +1096,7 @@ def assign_staff(
         actor_user_id=current_user.id,
         actor_name=current_user.name,
         message=f"تم تعيين الطلب إلى {staff.name}",
+        event_type="staff_assigned",
         is_internal=True,
     )
     db.add(update)
@@ -1141,6 +1144,7 @@ def update_status(
 
     if payload.status == "resolved" and payload.completion_photo_url:
         req.completion_photo_url = payload.completion_photo_url
+        req.completion_note = (payload.note or "").strip() or None
 
     req.sla_status = calculate_sla_status(
         req.created_at, req.category, req.priority, req.status,
@@ -1152,6 +1156,7 @@ def update_status(
         actor_user_id=current_user.id,
         actor_name=current_user.name,
         message=None,
+        event_type="status_changed",
         from_status=old_status,
         to_status=payload.status,
         is_internal=False,
@@ -1164,6 +1169,7 @@ def update_status(
             actor_user_id=current_user.id,
             actor_name=current_user.name,
             message=f"سبب الرفض: {payload.rejection_reason}",
+            event_type="rejection_reason",
             is_internal=False,
         ))
 
@@ -1173,6 +1179,7 @@ def update_status(
             actor_user_id=current_user.id,
             actor_name=current_user.name,
             message=f"ملاحظة داخلية: {payload.note}",
+            event_type="note_added",
             is_internal=True,
         ))
 
@@ -1216,6 +1223,7 @@ def update_priority(
         ),
         from_priority=old_priority,
         to_priority=payload.priority,
+        event_type="priority_changed",
         is_internal=True,
     ))
     _log(db, current_user.id, "priority_change", "service_request", req.id,
@@ -1241,9 +1249,43 @@ def add_internal_note(
         actor_user_id=current_user.id,
         actor_name=current_user.name,
         message=payload.message,
+        event_type="note_added",
         is_internal=True,
     ))
     _log(db, current_user.id, "add_note", "service_request", req.id)
+    db.commit()
+    db.refresh(req)
+    return req
+
+
+@router.post("/requests/{request_id}/archive", response_model=ServiceRequestOut)
+def archive_request(
+    request_id: UUID,
+    payload: ArchiveRequest,
+    current_user: User = Depends(require_roles(*ALLOWED_ROLES)),
+    db: Session = Depends(get_db),
+):
+    req = _scoped_requests(db, current_user).filter(ServiceRequest.id == request_id).first()
+    if not req:
+        raise HTTPException(status_code=404, detail="Request not found")
+    if payload.is_archived and req.status not in ("resolved", "rejected", "deferred"):
+        raise HTTPException(status_code=422, detail="لا يمكن أرشفة شكوى غير مغلقة")
+
+    req.is_archived = payload.is_archived
+    req.archived_at = datetime.now(timezone.utc) if payload.is_archived else None
+    req.archived_by_user_id = current_user.id if payload.is_archived else None
+    req.archive_note = (payload.note or "").strip() or None
+    req.updated_at = datetime.now(timezone.utc)
+
+    db.add(RequestUpdate(
+        request_id=req.id,
+        actor_user_id=current_user.id,
+        actor_name=current_user.name,
+        message=f"تم {'أرشفة' if payload.is_archived else 'إلغاء أرشفة'} الشكوى" + (f" — {req.archive_note}" if req.archive_note else ""),
+        event_type="archive_changed",
+        is_internal=True,
+    ))
+    _log(db, current_user.id, "archive_change", "service_request", req.id, str(payload.is_archived))
     db.commit()
     db.refresh(req)
     return req
@@ -1291,6 +1333,7 @@ def update_responsible_team(
         actor_user_id=current_user.id,
         actor_name=current_user.name,
         message=f"تم تعيين الفريق المسؤول: {new_label}",
+        event_type="team_assigned",
         is_internal=True,
     ))
     _log(db, current_user.id, "update_responsible_team", "service_request", req.id,
@@ -1335,6 +1378,7 @@ def add_material(
         actor_user_id=current_user.id,
         actor_name=current_user.name,
         message=f"تمت إضافة مادة: {payload.name} — {payload.quantity}",
+        event_type="material_added",
         is_internal=True,
     ))
     _log(db, current_user.id, "add_material", "service_request", req.id,
@@ -1643,15 +1687,8 @@ def delete_user_admin(
     if not target:
         raise HTTPException(status_code=404, detail="User not found")
 
-    has_assignments = db.query(ServiceRequest.id).filter(ServiceRequest.assigned_to_user_id == target.id).first()
-    has_updates = db.query(RequestUpdate.id).filter(RequestUpdate.actor_user_id == target.id).first()
-    if has_assignments or has_updates:
-        target.is_active = False
-        _log(db, current_user.id, "deactivate_user", "user", str(target.id))
-        db.commit()
-        return
-    db.delete(target)
-    _log(db, current_user.id, "delete_user", "user", str(target.id))
+    target.is_active = False
+    _log(db, current_user.id, "deactivate_user", "user", str(target.id))
     db.commit()
 
 
@@ -1667,12 +1704,100 @@ def _month_range(year: int, month: int):
     return start, end_exclusive
 
 
+def _csv_response(filename: str, rows: list[list[Any]]) -> StreamingResponse:
+    output = io.StringIO()
+    writer = csv.writer(output)
+    for row in rows:
+        writer.writerow(row)
+    output.seek(0)
+    headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
+    return StreamingResponse(iter([output.getvalue()]), media_type="text/csv; charset=utf-8", headers=headers)
+
+
+@router.get("/exports/{dataset}")
+def export_dataset(
+    dataset: str,
+    month: Optional[int] = Query(None, ge=1, le=12),
+    year: Optional[int] = Query(None, ge=2000, le=2100),
+    current_user: User = Depends(require_roles("governor", "mayor", "municipal_admin", "mukhtar", "district_admin")),
+    db: Session = Depends(get_db),
+):
+    now = datetime.now(timezone.utc)
+    if dataset == "complaints":
+        q = _scoped_requests(db, current_user)
+        rows = [["رقم الشكوى", "رمز التتبع", "المحافظة", "البلدية", "الحي", "الفئة", "الأولوية", "الحالة", "تاريخ الإنشاء", "تاريخ الإغلاق", "مؤرشف"]]
+        for req in q.order_by(ServiceRequest.created_at.desc()).all():
+            rows.append([req.complaint_number or "", req.tracking_code, req.governorate_name or "", req.municipality_name or "", req.district_name or "", req.category, req.priority, req.status, req.created_at.isoformat(), req.closed_at.isoformat() if req.closed_at else "", "نعم" if req.is_archived else "لا"])
+        return _csv_response(f"complaints-{now.date().isoformat()}.csv", rows)
+    if dataset == "municipalities":
+        if current_user.role != "governor":
+            raise HTTPException(status_code=403, detail="غير مصرح")
+        rows = [["البلدية", "نشطة"]]
+        for mun in db.query(Municipality).filter(Municipality.governorate_id == current_user.governorate_id).order_by(Municipality.name).all():
+            rows.append([mun.name, "نعم" if mun.is_active else "لا"])
+        return _csv_response("municipalities.csv", rows)
+    if dataset == "districts":
+        rows = [["الحي", "البلدية", "نشط"]]
+        q = db.query(District).join(Municipality, Municipality.id == District.municipality_id)
+        if current_user.role in ("mayor", "municipal_admin"):
+            q = q.filter(District.municipality_id == current_user.municipality_id)
+        elif current_user.role in ("mukhtar", "district_admin"):
+            q = q.filter(District.id == current_user.district_id)
+        else:
+            q = q.filter(Municipality.governorate_id == current_user.governorate_id)
+        for dist, mun_name in q.with_entities(District, Municipality.name).order_by(District.name).all():
+            rows.append([dist.name, mun_name, "نعم" if dist.is_active else "لا"])
+        return _csv_response("districts.csv", rows)
+    if dataset == "mayors":
+        if current_user.role != "governor":
+            raise HTTPException(status_code=403, detail="غير مصرح")
+        rows = [["الاسم", "اسم المستخدم", "البلدية", "نشط"]]
+        for u, mun_name in db.query(User, Municipality.name).join(Municipality, Municipality.id == User.municipality_id).filter(User.role == "mayor", Municipality.governorate_id == current_user.governorate_id).all():
+            rows.append([u.full_name, u.username, mun_name, "نعم" if u.is_active else "لا"])
+        return _csv_response("mayors.csv", rows)
+    if dataset == "mukhtars":
+        rows = [["الاسم", "اسم المستخدم", "الحي", "نشط"]]
+        q = db.query(User, District.name).join(District, District.id == User.district_id).filter(User.role == "mukhtar")
+        if current_user.role in ("mayor", "municipal_admin"):
+            q = q.filter(User.municipality_id == current_user.municipality_id)
+        elif current_user.role in ("mukhtar", "district_admin"):
+            q = q.filter(User.district_id == current_user.district_id)
+        else:
+            q = q.join(Municipality, Municipality.id == User.municipality_id).filter(Municipality.governorate_id == current_user.governorate_id)
+        for u, district_name in q.all():
+            rows.append([u.full_name, u.username, district_name, "نعم" if u.is_active else "لا"])
+        return _csv_response("mukhtars.csv", rows)
+    if dataset == "teams":
+        rows = [["الفريق", "القائد", "الهاتف", "البلدية", "نشط"]]
+        q = db.query(MunicipalTeam, Municipality.name).join(Municipality, Municipality.id == MunicipalTeam.municipality_id)
+        if current_user.role in ("mayor", "municipal_admin"):
+            q = q.filter(MunicipalTeam.municipality_id == current_user.municipality_id)
+        elif current_user.role == "governor":
+            q = q.filter(Municipality.governorate_id == current_user.governorate_id)
+        else:
+            q = q.filter(MunicipalTeam.municipality_id == current_user.municipality_id)
+        for t, mun_name in q.all():
+            rows.append([t.team_name, t.leader_name, t.leader_phone, mun_name, "نعم" if t.is_active else "لا"])
+        return _csv_response("teams.csv", rows)
+    if dataset == "monthly-report":
+        if not month or not year:
+            raise HTTPException(status_code=422, detail="month and year are required")
+        report = _build_report(db, _scoped_requests(db, current_user), month, year)
+        rows = [["المؤشر", "القيمة"], ["الشهر", f"{month}/{year}"], ["إجمالي الشكاوى", report.total], ["مفتوحة", report.open], ["قيد المعالجة", report.in_progress], ["محلولة", report.resolved], ["معدل الإغلاق", report.closure_rate], ["معدل التأخر", report.overdue_rate], ["متوسط زمن المعالجة (ساعة)", report.average_resolution_time_hours or ""]]
+        return _csv_response("monthly-report.csv", rows)
+
+    raise HTTPException(status_code=404, detail="dataset not found")
+
+
 def _build_report(
     db: Session,
     base_q,
     month: int,
     year: int,
+    report_type: Optional[str] = None,
+    entity_name: Optional[str] = None,
     top_district_query=None,
+    best_worst_query=None,
 ) -> MonthlyReport:
     """Compute monthly report stats from a scoped base query."""
     now = datetime.now(timezone.utc)
@@ -1726,17 +1851,55 @@ def _build_report(
         top_district_row = top_district_query(start, end_exclusive)
         top_district = top_district_row[0] if top_district_row else None
 
+    avg_resolution_time_hours = None
+    resolved_rows = q.filter(ServiceRequest.closed_at.isnot(None)).with_entities(ServiceRequest.created_at, ServiceRequest.closed_at).all()
+    if resolved_rows:
+        total_hours = sum(max((closed - created).total_seconds(), 0) / 3600 for created, closed in resolved_rows if created and closed)
+        avg_resolution_time_hours = round(total_hours / len(resolved_rows), 2) if resolved_rows else None
+
+    backlog_open = open_count + in_progress
+    closure_rate = round((resolved / total) * 100, 2) if total else 0.0
+    overdue_rate = round((overdue / total) * 100, 2) if total else 0.0
+    top_categories = [ReportCountEntry(name=r[0], count=r[1]) for r in by_category_rows[:5]]
+    top_teams = [
+        ReportCountEntry(name=r[0], count=r[1])
+        for r in (
+            q.filter(ServiceRequest.responsible_team_name.isnot(None))
+            .with_entities(ServiceRequest.responsible_team_name, func.count(ServiceRequest.id).label("cnt"))
+            .group_by(ServiceRequest.responsible_team_name)
+            .order_by(func.count(ServiceRequest.id).desc())
+            .limit(5)
+            .all()
+        )
+    ]
+    best_entities: list[ReportCountEntry] = []
+    worst_entities: list[ReportCountEntry] = []
+    if best_worst_query is not None:
+        best_rows, worst_rows = best_worst_query(start, end_exclusive)
+        best_entities = [ReportCountEntry(name=name, count=count) for name, count in best_rows]
+        worst_entities = [ReportCountEntry(name=name, count=count) for name, count in worst_rows]
+
     return MonthlyReport(
         period={"month": month, "year": year},
+        report_type=report_type,
+        entity_name=entity_name,
         total=total,
         open=open_count,
         in_progress=in_progress,
         resolved=resolved,
         urgent=urgent,
         overdue=overdue,
+        backlog_open=backlog_open,
+        closure_rate=closure_rate,
+        overdue_rate=overdue_rate,
+        average_resolution_time_hours=avg_resolution_time_hours,
         most_common_category=most_common_category,
         most_assigned_team=most_assigned_team,
         top_district=top_district,
+        top_categories=top_categories,
+        top_teams=top_teams,
+        best_performing_entities=best_entities,
+        worst_performing_entities=worst_entities,
         by_category=[ReportCountEntry(name=r[0], count=r[1]) for r in by_category_rows],
         by_status=[ReportCountEntry(name=r[0], count=r[1]) for r in by_status_rows],
     )
@@ -1931,7 +2094,8 @@ def district_monthly_report(
     base_q = db.query(ServiceRequest).filter(
         ServiceRequest.district_id == target_district_id
     )
-    return _build_report(db, base_q, month, year)
+    district_name = db.query(District.name).filter(District.id == target_district_id).scalar()
+    return _build_report(db, base_q, month, year, report_type="district", entity_name=district_name)
 
 
 @router.get("/reports/municipality", response_model=MonthlyReport)
@@ -1979,7 +2143,36 @@ def municipality_monthly_report(
             .first()
         )
 
-    return _build_report(db, base_q, month, year, top_district_query=top_district_fn)
+    municipality_name = db.query(Municipality.name).filter(Municipality.id == target_municipality_id).scalar()
+
+    def best_worst_fn(start, end_exclusive):
+        rows = (
+            db.query(District.name, func.count(ServiceRequest.id).label("resolved_cnt"))
+            .join(ServiceRequest, ServiceRequest.district_id == District.id)
+            .filter(
+                ServiceRequest.municipality_id == target_municipality_id,
+                ServiceRequest.status == "resolved",
+                ServiceRequest.created_at >= start,
+                ServiceRequest.created_at < end_exclusive,
+            )
+            .group_by(District.name)
+            .order_by(func.count(ServiceRequest.id).desc())
+            .all()
+        )
+        if not rows:
+            return [], []
+        return rows[:3], list(reversed(rows[-3:]))
+
+    return _build_report(
+        db,
+        base_q,
+        month,
+        year,
+        report_type="municipality",
+        entity_name=municipality_name,
+        top_district_query=top_district_fn,
+        best_worst_query=best_worst_fn,
+    )
 
 
 @router.get("/reports/governorate", response_model=MonthlyReport)
@@ -2016,4 +2209,33 @@ def governorate_monthly_report(
             .first()
         )
 
-    return _build_report(db, base_q, month, year, top_district_query=top_district_fn)
+    governorate_name = db.query(Governorate.name).filter(Governorate.id == current_user.governorate_id).scalar()
+
+    def best_worst_fn(start, end_exclusive):
+        rows = (
+            db.query(Municipality.name, func.count(ServiceRequest.id).label("resolved_cnt"))
+            .join(ServiceRequest, ServiceRequest.municipality_id == Municipality.id)
+            .filter(
+                Municipality.governorate_id == current_user.governorate_id,
+                ServiceRequest.status == "resolved",
+                ServiceRequest.created_at >= start,
+                ServiceRequest.created_at < end_exclusive,
+            )
+            .group_by(Municipality.name)
+            .order_by(func.count(ServiceRequest.id).desc())
+            .all()
+        )
+        if not rows:
+            return [], []
+        return rows[:3], list(reversed(rows[-3:]))
+
+    return _build_report(
+        db,
+        base_q,
+        month,
+        year,
+        report_type="governorate",
+        entity_name=governorate_name,
+        top_district_query=top_district_fn,
+        best_worst_query=best_worst_fn,
+    )

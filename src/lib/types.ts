@@ -60,6 +60,11 @@ export interface ServiceRequest {
   assignedToName?: string
   rejectionReason?: string
   completionPhotoUrl?: string
+  completionNote?: string
+  isArchived?: boolean
+  archivedAt?: string
+  archivedByUserId?: string
+  archiveNote?: string
   priorityEscalatedAt?: string
   isAutoEscalated?: boolean
   slaDeadline?: string
@@ -88,6 +93,7 @@ export interface RequestUpdate {
   actorUserId?: string
   actorName?: string
   message?: string
+  eventType?: string
   fromStatus?: RequestStatus
   toStatus?: RequestStatus
   fromPriority?: Priority

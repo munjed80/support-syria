@@ -18,7 +18,7 @@ import {
   TableHeader,
   TableRow
 } from '@/components/ui/table'
-import { SignOut, ChartBar, Buildings, Warning, ClipboardText, Plus, MagnifyingGlass, MapPin, Users, CheckCircle, Timer, Wrench, Printer, PencilSimple, CaretDown } from '@phosphor-icons/react'
+import { SignOut, ChartBar, Buildings, Warning, ClipboardText, Plus, MagnifyingGlass, MapPin, Users, CheckCircle, Timer, Wrench, Printer, PencilSimple, CaretDown, DownloadSimple, ArchiveBox } from '@phosphor-icons/react'
 import { CATEGORIES, STATUSES, STATUS_COLORS, PRIORITIES, PRIORITY_BADGE_COLORS, RESPONSIBLE_TEAMS, formatRelativeTime, isOverdue } from '@/lib/constants'
 import { RequestDetailsDialog } from '@/components/RequestDetailsDialog'
 import { PrintReport } from '@/components/PrintReport'
@@ -597,6 +597,7 @@ function RequestsView({ user }: { user: User }) {
   const [search, setSearch] = useState('')
   const [sortBy, setSortBy] = useState('created_at')
   const [sortDir, setSortDir] = useState('desc')
+  const [archivedOnly, setArchivedOnly] = useState(false)
 
   const [selectedRequest, setSelectedRequest] = useState<ServiceRequest | null>(null)
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -643,6 +644,7 @@ function RequestsView({ user }: { user: User }) {
     if (dateFrom) filters.date_from = dateFrom
     if (dateTo) filters.date_to = dateTo
     if (search.trim()) filters.search = search.trim()
+    if (archivedOnly) filters.archived = true
 
     api.getRequests(filters)
       .then((result) => {
@@ -652,7 +654,7 @@ function RequestsView({ user }: { user: User }) {
       .catch(() => {})
   }, [page, statusFilter, categoryFilter, priorityFilter, responsibleTeamFilter,
       complaintNumberSearch, districtFilter, municipalityFilter,
-      overdueFilter, slaBreachedFilter, dateFrom, dateTo, search, sortBy, sortDir])
+      overdueFilter, slaBreachedFilter, dateFrom, dateTo, search, sortBy, sortDir, archivedOnly])
 
   useEffect(() => { fetchRequests() }, [fetchRequests])
 
@@ -682,10 +684,11 @@ function RequestsView({ user }: { user: User }) {
     setDistrictFilter('all')
     setMunicipalityFilter('all')
     setSearch('')
+    setArchivedOnly(false)
     setPage(1)
   }
 
-  const hasActiveFilters = overdueFilter || slaBreachedFilter || dateFrom || dateTo ||
+  const hasActiveFilters = overdueFilter || slaBreachedFilter || dateFrom || dateTo || archivedOnly ||
     statusFilter.length > 0 || categoryFilter.length > 0 || priorityFilter.length > 0 ||
     responsibleTeamFilter.length > 0 || complaintNumberSearch.trim() ||
     districtFilter !== 'all' || municipalityFilter !== 'all' || search.trim()
@@ -877,12 +880,18 @@ function RequestsView({ user }: { user: User }) {
         <CardHeader>
           <div className="flex items-center justify-between">
             <CardTitle>الطلبات</CardTitle>
-            {isMukhtar && (
-              <Button size="sm" onClick={() => setCreateOpen(true)}>
-                <Plus className="ml-2" size={16} />
-                تسجيل طلب
+            <div className="flex items-center gap-2">
+              <Button variant="outline" size="sm" onClick={() => window.open(api.getExportUrl('complaints'), '_blank')}>
+                <DownloadSimple className="ml-2" size={16} />
+                تصدير CSV
               </Button>
-            )}
+              {isMukhtar && (
+                <Button size="sm" onClick={() => setCreateOpen(true)}>
+                  <Plus className="ml-2" size={16} />
+                  تسجيل طلب
+                </Button>
+              )}
+            </div>
           </div>
         </CardHeader>
         <CardContent>
@@ -1021,6 +1030,7 @@ function RequestsView({ user }: { user: User }) {
 
                 <div className="flex flex-wrap gap-4 items-center pt-1 border-t">
                   <div className="flex items-center gap-2"><Switch id="overdue" checked={overdueFilter} onCheckedChange={(v) => { setOverdueFilter(v); setPage(1) }} /><Label htmlFor="overdue" className="cursor-pointer">متأخّرة</Label></div>
+                  <div className="flex items-center gap-2"><Switch id="archive_only" checked={archivedOnly} onCheckedChange={(v) => { setArchivedOnly(v); setPage(1) }} /><Label htmlFor="archive_only" className="cursor-pointer">الأرشيف فقط</Label></div>
                   {isGovernor && <div className="flex items-center gap-2"><Switch id="sla_breached" checked={slaBreachedFilter} onCheckedChange={(v) => { setSlaBreachedFilter(v); setPage(1) }} /><Label htmlFor="sla_breached" className="cursor-pointer">SLA منتهية</Label></div>}
                   <div className="flex items-center gap-2"><Label className="text-sm">من:</Label><Input type="date" value={dateFrom} onChange={(e) => { setDateFrom(e.target.value); setPage(1) }} className="w-36 text-sm" /></div>
                   <div className="flex items-center gap-2"><Label className="text-sm">إلى:</Label><Input type="date" value={dateTo} onChange={(e) => { setDateTo(e.target.value); setPage(1) }} className="w-36 text-sm" /></div>
@@ -1073,6 +1083,12 @@ function RequestsView({ user }: { user: User }) {
                         </TableCell>
                         <TableCell className="font-mono font-semibold">
                           {request.trackingCode}
+                          {request.isArchived && (
+                            <Badge variant="outline" className="mr-2 text-xs">
+                              <ArchiveBox size={12} className="ml-1" />
+                              مؤرشف
+                            </Badge>
+                          )}
                           {isOverdue(request) && (
                             <Badge variant="destructive" className="mr-2 text-xs">متأخر</Badge>
                           )}
@@ -1786,6 +1802,14 @@ function MonthlyReportsView({ user }: { user: User }) {
                 طباعة التقرير
               </Button>
             )}
+            <Button
+              variant="outline"
+              onClick={() => window.open(api.getExportUrl('monthly-report', { month, year }), '_blank')}
+              className="self-end gap-1"
+            >
+              <DownloadSimple size={16} />
+              تصدير CSV
+            </Button>
           </div>
         </CardContent>
       </Card>

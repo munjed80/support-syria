@@ -121,6 +121,7 @@ class RequestUpdateOut(BaseModel):
     actor_user_id: Optional[UUID] = None
     actor_name: Optional[str] = None
     message: Optional[str] = None
+    event_type: Optional[str] = None
     from_status: Optional[str] = None
     to_status: Optional[str] = None
     from_priority: Optional[str] = None
@@ -157,6 +158,11 @@ class ServiceRequestOut(BaseModel):
     assigned_to_name: Optional[str] = None
     rejection_reason: Optional[str] = None
     completion_photo_url: Optional[str] = None
+    completion_note: Optional[str] = None
+    is_archived: bool = False
+    archived_at: Optional[datetime] = None
+    archived_by_user_id: Optional[UUID] = None
+    archive_note: Optional[str] = None
     priority_escalated_at: Optional[datetime] = None
     is_auto_escalated: bool
     sla_deadline: Optional[datetime] = None
@@ -228,6 +234,11 @@ class StatusUpdateRequest(BaseModel):
     status: str
     rejection_reason: Optional[str] = None
     completion_photo_url: Optional[str] = None
+    completion_note: Optional[str] = None
+    is_archived: bool = False
+    archived_at: Optional[datetime] = None
+    archived_by_user_id: Optional[UUID] = None
+    archive_note: Optional[str] = None
     note: Optional[str] = None
 
 
@@ -475,14 +486,24 @@ class AccountabilityReport(BaseModel):
     top_delayed_entities: list[AccountabilityTopEntity] = []
 class MonthlyReport(BaseModel):
     period: MonthlyReportPeriod
+    report_type: Optional[str] = None
+    entity_name: Optional[str] = None
     total: int
     open: int
     in_progress: int
     resolved: int
     urgent: int
     overdue: int
+    backlog_open: int
+    closure_rate: float
+    overdue_rate: float
+    average_resolution_time_hours: Optional[float] = None
     most_common_category: Optional[str] = None
     most_assigned_team: Optional[str] = None
     top_district: Optional[str] = None
+    top_categories: list[ReportCountEntry] = []
+    top_teams: list[ReportCountEntry] = []
+    best_performing_entities: list[ReportCountEntry] = []
+    worst_performing_entities: list[ReportCountEntry] = []
     by_category: list[ReportCountEntry] = []
     by_status: list[ReportCountEntry] = []
