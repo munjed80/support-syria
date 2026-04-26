@@ -307,10 +307,10 @@ def delete_municipality(
 
 @router.get("/districts", response_model=list[DistrictOut])
 def list_districts_admin(
-    current_user: User = Depends(require_roles("mayor", "governor")),
+    current_user: User = Depends(require_roles("mayor", "municipal_admin", "governor")),
     db: Session = Depends(get_db),
 ):
-    if current_user.role == "mayor":
+    if current_user.role in ("mayor", "municipal_admin"):
         return (
             db.query(District)
             .filter(District.municipality_id == current_user.municipality_id)
@@ -331,7 +331,7 @@ def list_districts_admin(
 @router.post("/districts", response_model=DistrictOut, status_code=201)
 def create_district(
     payload: DistrictCreate,
-    current_user: User = Depends(require_roles("mayor")),
+    current_user: User = Depends(require_roles("mayor", "municipal_admin")),
     db: Session = Depends(get_db),
 ):
     district = District(
@@ -351,7 +351,7 @@ def create_district(
 def update_district(
     district_id: UUID,
     payload: DistrictUpdate,
-    current_user: User = Depends(require_roles("mayor")),
+    current_user: User = Depends(require_roles("mayor", "municipal_admin")),
     db: Session = Depends(get_db),
 ):
     district = db.query(District).filter(
@@ -373,7 +373,7 @@ def update_district(
 @router.delete("/districts/{district_id}", status_code=204)
 def delete_district(
     district_id: UUID,
-    current_user: User = Depends(require_roles("mayor")),
+    current_user: User = Depends(require_roles("mayor", "municipal_admin")),
     db: Session = Depends(get_db),
 ):
     district = db.query(District).filter(
@@ -392,11 +392,11 @@ def delete_district(
 @router.get("/teams", response_model=list[MunicipalTeamOut])
 def list_teams(
     municipality_id: Optional[UUID] = Query(None),
-    current_user: User = Depends(require_roles("mayor", "governor")),
+    current_user: User = Depends(require_roles("mayor", "municipal_admin", "governor")),
     db: Session = Depends(get_db),
 ):
     q = db.query(MunicipalTeam)
-    if current_user.role == "mayor":
+    if current_user.role in ("mayor", "municipal_admin"):
         q = q.filter(MunicipalTeam.municipality_id == current_user.municipality_id)
     else:
         from sqlalchemy import select
@@ -410,7 +410,7 @@ def list_teams(
 @router.post("/teams", response_model=MunicipalTeamOut, status_code=201)
 def create_team(
     payload: MunicipalTeamCreate,
-    current_user: User = Depends(require_roles("mayor")),
+    current_user: User = Depends(require_roles("mayor", "municipal_admin")),
     db: Session = Depends(get_db),
 ):
     team = MunicipalTeam(
@@ -433,7 +433,7 @@ def create_team(
 def update_team(
     team_id: UUID,
     payload: MunicipalTeamUpdate,
-    current_user: User = Depends(require_roles("mayor")),
+    current_user: User = Depends(require_roles("mayor", "municipal_admin")),
     db: Session = Depends(get_db),
 ):
     team = db.query(MunicipalTeam).filter(
@@ -461,7 +461,7 @@ def update_team(
 @router.delete("/teams/{team_id}", status_code=204)
 def delete_team(
     team_id: UUID,
-    current_user: User = Depends(require_roles("mayor")),
+    current_user: User = Depends(require_roles("mayor", "municipal_admin")),
     db: Session = Depends(get_db),
 ):
     team = db.query(MunicipalTeam).filter(
@@ -1800,7 +1800,7 @@ def create_mayor(
 @router.post("/users/mukhtars", response_model=UserOut, status_code=201)
 def create_mukhtar(
     payload: CreateMukhtarRequest,
-    current_user: User = Depends(require_roles("mayor")),
+    current_user: User = Depends(require_roles("mayor", "municipal_admin")),
     db: Session = Depends(get_db),
 ):
     """Mayor creates a Mukhtar account scoped to a district within their municipality."""
@@ -1856,7 +1856,7 @@ def list_mayors(
 
 @router.get("/users/mukhtars", response_model=list[UserOut])
 def list_mukhtars(
-    current_user: User = Depends(require_roles("mayor")),
+    current_user: User = Depends(require_roles("mayor", "municipal_admin")),
     db: Session = Depends(get_db),
 ):
     return (
