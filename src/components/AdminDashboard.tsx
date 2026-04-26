@@ -640,8 +640,8 @@ function RequestsView({ user }: { user: User }) {
   const [createOpen, setCreateOpen] = useState(false)
 
   const isGovernor = user.role === 'governor'
-  const isMayor = user.role === 'mayor'
-  const isMukhtar = user.role === 'mukhtar'
+  const isMayor = user.role === 'mayor' || user.role === 'municipal_admin'
+  const isMukhtar = user.role === 'mukhtar' || user.role === 'district_admin'
 
   // Load dashboard stats on mount
   useEffect(() => {
@@ -2139,7 +2139,7 @@ function NotificationCenter() {
 
 export function AdminDashboard({ user, onLogout }: AdminDashboardProps) {
   const isGovernor = user.role === 'governor'
-  const isMayor = user.role === 'mayor'
+  const isMayor = user.role === 'mayor' || user.role === 'municipal_admin'
 
   const [activeTab, setActiveTab] = useState<'requests' | 'performance' | 'municipalities' | 'mayors' | 'districts' | 'mukhtars' | 'teams' | 'reports'>('requests')
 
